@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { getCitaByStripeSession, updateCitaStripe } from "@/lib/db";
+import { attachClienteToCita, getCitaById, getCitaByStripeSession, updateCitaStripe } from "@/lib/db";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2026-05-27.dahlia" });
 
@@ -21,12 +21,26 @@ export async function GET(request: Request) {
     let citaId: number | undefined;
     if (paid) {
       try {
-        const cita = await getCitaByStripeSession(sessionId);
+        let cita = await getCitaByStripeSession(sessionId);
+
+        // Fallback: si attachClienteToCita falló silenciosamente antes y stripe_session_id
+        // nunca se guardó en la cita, recuperarla por hold_id del metadata de Stripe
+        if (!cita && meta.hold_id) {
+          const holdCita = await getCitaById(Number(meta.hold_id));
+          if (holdCita && meta.cliente_id) {
+            console.log(`[verify] stripe_session_id no encontrado, reparando cita ${meta.hold_id}`);
+            await attachClienteToCita(Number(meta.hold_id), Number(meta.cliente_id), sessionId);
+            cita = await getCitaById(Number(meta.hold_id));
+          }
+        }
+
         if (cita) {
           citaId = cita.id;
           if (cita.estado === "pendiente" || cita.stripe_payment_status !== "pagado") {
             await updateCitaStripe(cita.id, "pagado", "confirmada");
           }
+        } else {
+          console.warn(`[verify] no se encontró cita para session_id=${sessionId} hold_id=${meta.hold_id ?? "N/A"}`);
         }
       } catch (e) {
         console.error("[verify] auto-confirm:", e);

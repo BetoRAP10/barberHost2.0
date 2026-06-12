@@ -423,7 +423,7 @@ export async function attachClienteToCita(
   stripeSessionId: string,
 ): Promise<void> {
   await ensureInit();
-  await supabase
+  const { error } = await supabase
     .from("citas")
     .update({
       cliente_id:            clienteId,
@@ -432,6 +432,7 @@ export async function attachClienteToCita(
       actualizado_en:        new Date().toISOString(),
     })
     .eq("id", citaId);
+  if (error) throw new Error(`[attachClienteToCita] ${error.message}`);
 }
 
 export async function updateCitaEstado(id: number, estado: EstadoCita): Promise<void> {
@@ -598,7 +599,8 @@ function slotFreeInMemory(
   const start = new Date(`${fecha}T${hora}:00`);
   const end   = new Date(start.getTime() + duracion * 60000);
   for (const c of citas) {
-    const cs = new Date(c.fecha_hora);
+    // slice(0,19) strips "+00:00"/Z so TIMESTAMPTZ values are treated as local time
+    const cs = new Date(c.fecha_hora.slice(0, 19));
     const ce = new Date(cs.getTime() + Number(c.duracion_eff) * 60000);
     if (start < ce && end > cs) return false;
   }

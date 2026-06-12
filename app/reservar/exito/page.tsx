@@ -36,7 +36,8 @@ type Result =
 function formatFecha(iso: string) {
   if (!iso) return "";
   try {
-    return new Date(iso).toLocaleString("es-MX", {
+    // slice(0,19) strips timezone offset so the string is parsed as local time
+    return new Date(iso.slice(0, 19)).toLocaleString("es-MX", {
       weekday: "long", year: "numeric", month: "long",
       day: "numeric", hour: "2-digit", minute: "2-digit",
       hour12: false,

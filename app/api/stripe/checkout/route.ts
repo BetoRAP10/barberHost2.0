@@ -113,6 +113,7 @@ export async function POST(request: Request) {
         : `${baseUrl}/reservar`,
       metadata: {
         cliente_id:     String(clienteId),
+        hold_id:        holdId ? String(holdId) : "",
         items_json:     JSON.stringify(items),
         fecha_hora,
         notas:          parsed.data.notas ?? "",
