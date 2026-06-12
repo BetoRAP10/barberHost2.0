@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "db:init": "tsx scripts/init-db.ts"
+    "start": "next start -H 0.0.0.0",
+    "server": "node index.js",
+    "lint": "next lint"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",
@@ -22,18 +22,22 @@
     "@radix-ui/react-tabs": "^1.1.12",
     "@radix-ui/react-toast": "^1.2.14",
     "@react-pdf/renderer": "^4.3.0",
+    "@supabase/supabase-js": "^2.108.1",
+    "@types/pg": "^8.20.0",
     "bcryptjs": "^3.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.513.0",
-    "next": "^15.3.3",
+    "next": "^16.2.9",
+    "pg": "^8.21.0",
     "react": "^19.1.0",
     "react-day-picker": "^9.7.0",
     "react-dom": "^19.1.0",
     "react-hook-form": "^7.57.0",
     "recharts": "^2.15.3",
     "sonner": "^2.0.5",
+    "stripe": "^22.2.0",
     "tailwind-merge": "^3.3.0",
     "zod": "^3.25.51"
   },
@@ -41,13 +45,13 @@
     "@eslint/eslintrc": "^3.3.1",
     "@tailwindcss/postcss": "^4.1.8",
     "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^22.15.29",
-    "@types/react": "^19.1.6",
+    "@types/node": "22.19.21",
+    "@types/react": "19.2.17",
     "@types/react-dom": "^19.1.5",
     "eslint": "^9.28.0",
     "eslint-config-next": "^15.3.3",
     "tailwindcss": "^4.1.8",
     "tsx": "^4.19.4",
-    "typescript": "^5.8.3"
+    "typescript": "5.9.3"
   }
 }
