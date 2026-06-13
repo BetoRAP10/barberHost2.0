@@ -75,18 +75,7 @@ try {
 
   const adminDir = p("out/admin");
   if (exists("out/admin")) {
-    const keep = new Set(["login"]);
-    for (const item of fs.readdirSync(adminDir)) {
-      if (!keep.has(item)) {
-        fs.rmSync(path.join(adminDir, item), { recursive: true, force: true });
-      }
-    }
-    fs.writeFileSync(
-      path.join(adminDir, "index.html"),
-      `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=/equipo_04/admin/login/"><script>location.replace("/equipo_04/admin/login/")</script></head><body></body></html>`,
-      "utf8"
-    );
-    console.log("> out/admin reducido a login + redirect (panel protegido por servidor)");
+    console.log("> out/admin incluye panel completo (protegido por AdminGuard + API)");
   }
 } catch (err) {
   console.error("> Static export failed:", err.message);

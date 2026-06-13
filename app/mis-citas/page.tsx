@@ -10,11 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Calendar as DateCalendar } from "@/components/ui/calendar";
 import { EmptyState, EstadoBadge, LoadingState } from "@/components/shared/status-badge";
 import { exportCitaComprobante } from "@/lib/pdf-export";
-import { formatDateTime, formatCurrency } from "@/lib/utils";
+import { formatDateTime, formatCurrency, formatSlotRange12h, parseFechaHoraLocal } from "@/lib/utils";
 import type { CitaConDetalles } from "@/lib/types";
 
 const normalizeTel = (tel: string) => tel.replace(/[\s\-\(\)\+\.]/g, "");
@@ -39,6 +40,7 @@ export default function MisCitasPage() {
   const [newDate, setNewDate]   = useState<Date | undefined>();
   const [newSlot, setNewSlot]   = useState("");
   const [slots, setSlots]       = useState<string[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
 
   const buscar = async () => {
     if (!email.trim()) { toast.error("Introduce tu email"); return; }
@@ -57,7 +59,7 @@ export default function MisCitasPage() {
   };
 
   // Determina si la cita es futura (puede cancelarse o reprogramarse)
-  const esFutura = (cita: CitaConDetalles) => new Date(cita.fecha_hora) > new Date();
+  const esFutura = (cita: CitaConDetalles) => parseFechaHoraLocal(cita.fecha_hora).getTime() > Date.now();
 
   // Abre el diálogo de verificación de teléfono
   const pedirVerificacion = (cita: CitaConDetalles, action: "reprogramar" | "cancelar") => {
@@ -116,10 +118,19 @@ export default function MisCitasPage() {
   const cargarSlots = async (date: Date, cita: CitaConDetalles) => {
     setNewDate(date);
     setNewSlot("");
-    const fecha = format(date, "yyyy-MM-dd");
-    const duracion = (cita.duracion_total ?? 0) > 0 ? cita.duracion_total : cita.servicio_duracion;
-    const res = await fetch(`/api/citas?fecha=${fecha}&duracion=${duracion}&exclude_id=${cita.id}`);
-    setSlots(await res.json());
+    setSlotsLoading(true);
+    try {
+      const fecha = format(date, "yyyy-MM-dd");
+      const duracion = (cita.duracion_total ?? 0) > 0 ? cita.duracion_total : cita.servicio_duracion;
+      const res = await fetch(`/api/citas?fecha=${fecha}&duracion=${duracion}&exclude_id=${cita.id}`);
+      const data = await res.json();
+      setSlots(Array.isArray(data) ? data : []);
+    } catch {
+      setSlots([]);
+      toast.error("Error al cargar horarios");
+    } finally {
+      setSlotsLoading(false);
+    }
   };
 
   const reprogramar = async (cita: CitaConDetalles) => {
@@ -287,53 +298,96 @@ export default function MisCitasPage() {
 
         {/* ── Dialog: reprogramar ── */}
         <Dialog open={!!reprogramarId} onOpenChange={() => setReprogramarId(null)}>
-          <DialogContent>
-            <DialogHeader>
+          <DialogContent className="flex max-h-[min(90vh,700px)] w-[calc(100%-1.5rem)] max-w-md flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+            <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
               <DialogTitle>Reprogramar cita</DialogTitle>
             </DialogHeader>
             {citaReprogramar && (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Solo puedes reagendar dentro de los próximos 2 meses.
-                </p>
-                <DateCalendar
-                  mode="single"
-                  selected={newDate}
-                  onSelect={(d: Date | undefined) => d && cargarSlots(d, citaReprogramar)}
-                  disabled={(date) => {
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (date < today) return true;
-                    if (date > maxFechaReprogramar) return true;
-                    if (date.getDay() === 0) return true;
-                    return false;
-                  }}
-                />
-                {slots.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {slots.map((slot) => (
-                      <Button
-                        key={slot}
-                        variant={newSlot === slot ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setNewSlot(slot)}
-                      >
-                        {slot}
-                      </Button>
-                    ))}
-                  </div>
-                )}
-                {newDate && slots.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center">No hay horarios disponibles este día</p>
-                )}
-                <Button
-                  className="w-full"
-                  disabled={!newDate || !newSlot}
-                  onClick={() => reprogramar(citaReprogramar)}
-                >
-                  Confirmar nueva fecha
-                </Button>
-              </div>
+              <>
+                <div className="flex-1 space-y-4 overflow-y-auto px-6 pb-4">
+                  <p className="text-sm text-muted-foreground">
+                    Cita actual: <strong>{formatDateTime(citaReprogramar.fecha_hora)}</strong>
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Elige una nueva fecha (máximo 2 meses, sin domingos).
+                  </p>
+                  <DateCalendar
+                    className="mx-auto rounded-lg border p-2"
+                    mode="single"
+                    selected={newDate}
+                    onSelect={(d: Date | undefined) => d && cargarSlots(d, citaReprogramar)}
+                    disabled={(date) => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      if (date < today) return true;
+                      if (date > maxFechaReprogramar) return true;
+                      if (date.getDay() === 0) return true;
+                      return false;
+                    }}
+                  />
+
+                  {newDate && slotsLoading && (
+                    <div className="py-4">
+                      <LoadingState />
+                    </div>
+                  )}
+
+                  {newDate && !slotsLoading && slots.length > 0 && (
+                    <div className="space-y-2">
+                      <Label htmlFor="slot-select">Horario disponible</Label>
+                      <Select value={newSlot} onValueChange={setNewSlot}>
+                        <SelectTrigger id="slot-select" className="w-full">
+                          <SelectValue placeholder="Selecciona un horario" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-60">
+                          {slots.map((slot) => {
+                            const duracion =
+                              (citaReprogramar.duracion_total ?? 0) > 0
+                                ? citaReprogramar.duracion_total
+                                : citaReprogramar.servicio_duracion;
+                            return (
+                              <SelectItem key={slot} value={slot}>
+                                {formatSlotRange12h(slot, duracion)}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {newDate && !slotsLoading && slots.length === 0 && (
+                    <p className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-center text-sm text-orange-700">
+                      No hay horarios disponibles este día. Elige otra fecha.
+                    </p>
+                  )}
+
+                  {newSlot && newDate && (
+                    <p className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-primary">
+                      Nueva cita:{" "}
+                      <strong>
+                        {format(newDate, "dd/MM/yyyy")} ·{" "}
+                        {formatSlotRange12h(
+                          newSlot,
+                          (citaReprogramar.duracion_total ?? 0) > 0
+                            ? citaReprogramar.duracion_total
+                            : citaReprogramar.servicio_duracion
+                        )}
+                      </strong>
+                    </p>
+                  )}
+                </div>
+
+                <div className="shrink-0 border-t bg-background px-6 py-4">
+                  <Button
+                    className="w-full"
+                    disabled={!newDate || !newSlot || slotsLoading}
+                    onClick={() => reprogramar(citaReprogramar)}
+                  >
+                    Confirmar nueva fecha
+                  </Button>
+                </div>
+              </>
             )}
           </DialogContent>
         </Dialog>

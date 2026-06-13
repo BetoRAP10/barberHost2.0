@@ -8,6 +8,7 @@ import {
   StyleSheet,
   pdf,
 } from "@react-pdf/renderer";
+import { formatDateTime } from "@/lib/utils";
 
 const styles = StyleSheet.create({
   page: { padding: 40, fontSize: 11, fontFamily: "Helvetica" },
@@ -93,11 +94,7 @@ export async function exportCitaComprobante(cita: {
 
         <View style={styles.section}>
           <Text style={styles.label}>Fecha y hora</Text>
-          <Text>{new Date(cita.fecha_hora.slice(0, 19)).toLocaleString("es-MX", {
-            weekday: "long", year: "numeric", month: "long",
-            day: "numeric", hour: "2-digit", minute: "2-digit",
-            hour12: false,
-          })}</Text>
+          <Text>{formatDateTime(cita.fecha_hora)}</Text>
         </View>
 
         <View style={styles.section}>

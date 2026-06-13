@@ -5,6 +5,7 @@ import {
   HORARIO_APERTURA,
   HORARIO_CIERRE,
   INTERVALO_MINUTOS,
+  isTiempoMuertoRecurrente,
 } from "./types";
 import type {
   CitaConDetalles,
@@ -547,14 +548,21 @@ export async function reactivarTienda(): Promise<void> {
 
 // ─── Disponibilidad ───────────────────────────────────────────────────────────
 
+function normHora(hora: string): string {
+  return hora.trim().slice(0, 5);
+}
+
 function isFechaBlocked(fecha: string, bloqueos: DiaBloqueado[]): boolean {
   const date = new Date(fecha + "T12:00:00");
   for (const b of bloqueos) {
+    if (isTiempoMuertoRecurrente(b)) continue;
     if (b.hasta_nuevo_aviso) return true;
     const tipo = b.tipo ?? "dia";
     if (tipo === "indefinido") return true;
-    if (tipo === "diario") return true; // aplica a todos los días (tiempo muerto recurrente)
-    if (tipo === "dia" && b.fecha === fecha) return true;
+    if (tipo === "dia" && b.fecha === fecha) {
+      if (!b.hora_inicio && !b.hora_fin) return true;
+      continue;
+    }
     if (tipo === "rango") {
       const fin = b.fecha_fin ?? b.fecha;
       if (fecha >= b.fecha && fecha <= fin) return true;
@@ -573,16 +581,15 @@ function isFechaBlocked(fecha: string, bloqueos: DiaBloqueado[]): boolean {
 }
 
 function isHoraBlocked(fecha: string, hora: string, bloqueos: DiaBloqueado[]): boolean {
+  const h = normHora(hora);
   for (const b of bloqueos) {
-    const tipo = b.tipo ?? "dia";
-    // Para bloqueos "diario" (tiempo muerto recurrente), solo verificar la hora sin chequear fecha
-    if (tipo === "diario") {
-      if (b.hora_inicio && b.hora_fin && hora >= b.hora_inicio && hora < b.hora_fin) return true;
+    if (isTiempoMuertoRecurrente(b)) {
+      if (b.hora_inicio && b.hora_fin && h >= normHora(b.hora_inicio) && h < normHora(b.hora_fin)) return true;
       continue;
     }
     if (!isFechaBlocked(fecha, [b])) continue;
     if (!b.hora_inicio && !b.hora_fin) return true;
-    if (b.hora_inicio && b.hora_fin && hora >= b.hora_inicio && hora < b.hora_fin) return true;
+    if (b.hora_inicio && b.hora_fin && h >= normHora(b.hora_inicio) && h < normHora(b.hora_fin)) return true;
   }
   return false;
 }

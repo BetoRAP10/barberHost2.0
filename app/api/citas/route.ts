@@ -248,15 +248,19 @@ export async function POST(request: Request) {
       }
 
       if (nuevoEstado === "completada") {
-        if (cita.estado !== "confirmada") {
+        if (cita.estado === "completada" || cita.estado === "cancelada") {
           return NextResponse.json(
-            { error: "Solo se pueden completar citas confirmadas" },
+            { error: "Esta cita no puede marcarse como completada" },
             { status: 400 }
           );
         }
-        if (new Date(cita.fecha_hora) > new Date()) {
+        if (
+          cita.estado === "pendiente" &&
+          cita.stripe_session_id &&
+          cita.stripe_payment_status !== "pagado"
+        ) {
           return NextResponse.json(
-            { error: "No puedes completar una cita que aún no ha ocurrido" },
+            { error: "Confirma el pago antes de completar la cita" },
             { status: 400 }
           );
         }

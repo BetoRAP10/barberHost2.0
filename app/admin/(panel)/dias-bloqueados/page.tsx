@@ -16,7 +16,9 @@ import { Calendar } from "@/components/ui/calendar";
 import { EmptyState, LoadingState } from "@/components/shared/status-badge";
 import { exportTableToPdf } from "@/lib/pdf-export";
 import type { DiaBloqueado } from "@/lib/types";
+import { isTiempoMuertoRecurrente } from "@/lib/types";
 import { handleAdminUnauthorized } from "@/lib/admin-utils";
+import { formatSlot12h } from "@/lib/utils";
 import { format } from "date-fns";
 
 export default function AdminDiasBloqueadosPage() {
@@ -46,8 +48,8 @@ export default function AdminDiasBloqueadosPage() {
 
   useEffect(() => { load(); }, []);
 
-  const bloqueosDiarios = bloqueos.filter((b) => b.tipo === "diario");
-  const bloqueosFecha   = bloqueos.filter((b) => b.tipo !== "diario");
+  const bloqueosDiarios = bloqueos.filter((b) => isTiempoMuertoRecurrente(b));
+  const bloqueosFecha   = bloqueos.filter((b) => !isTiempoMuertoRecurrente(b));
 
   const guardarDias = async () => {
     if (!selectedDates.length || !motivoDias) return;
@@ -76,7 +78,8 @@ export default function AdminDiasBloqueadosPage() {
         }),
       });
       if (!handleAdminUnauthorized(res)) return;
-      if (!res.ok) throw new Error();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Error al bloquear");
       toast.success(`${selectedDates.length} día(s) bloqueado(s)`);
       setOpenDias(false);
       setSelectedDates([]);
@@ -84,8 +87,8 @@ export default function AdminDiasBloqueadosPage() {
       setHoraInicioDias("");
       setHoraFinDias("");
       load();
-    } catch {
-      toast.error("Error al bloquear");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al bloquear");
     }
   };
 
@@ -115,12 +118,13 @@ export default function AdminDiasBloqueadosPage() {
         }),
       });
       if (!handleAdminUnauthorized(res)) return;
-      if (!res.ok) throw new Error();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Error al bloquear");
       toast.success("Tiempo muerto agregado");
       setOpenMuerto(false);
       load();
-    } catch {
-      toast.error("Error al guardar");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar");
     }
   };
 
@@ -162,7 +166,7 @@ export default function AdminDiasBloqueadosPage() {
             <DialogTrigger asChild>
               <Button variant="outline"><Clock className="size-4" /> Tiempo muerto</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
               <DialogHeader><DialogTitle>Agregar tiempo muerto diario</DialogTitle></DialogHeader>
               <p className="text-sm text-muted-foreground">
                 Este horario se bloqueará todos los días (ej. hora de comida).
@@ -194,7 +198,8 @@ export default function AdminDiasBloqueadosPage() {
             <DialogTrigger asChild>
               <Button><CalendarOff className="size-4" /> Bloquear días</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-sm">
+            <DialogContent className="flex max-h-[90vh] w-[calc(100%-1.5rem)] max-w-md flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+              <div className="overflow-y-auto px-6 pt-6 pb-4 space-y-4">
               <DialogHeader><DialogTitle>Bloquear uno o varios días</DialogTitle></DialogHeader>
               <p className="text-sm text-muted-foreground">
                 Selecciona varios días en el calendario. {selectedDates.length > 0 && <strong>{selectedDates.length} seleccionado(s)</strong>}
@@ -227,6 +232,7 @@ export default function AdminDiasBloqueadosPage() {
                 <Button className="w-full" disabled={!selectedDates.length || !motivoDias} onClick={guardarDias}>
                   Bloquear {selectedDates.length > 1 ? `${selectedDates.length} días` : "día"}
                 </Button>
+              </div>
               </div>
             </DialogContent>
           </Dialog>
@@ -320,7 +326,7 @@ export default function AdminDiasBloqueadosPage() {
                         <TableCell>
                           <span className="flex items-center gap-1 font-medium">
                             <Clock className="size-3.5 text-primary" />
-                            {b.hora_inicio} – {b.hora_fin}
+                            {formatSlot12h(b.hora_inicio!)} – {formatSlot12h(b.hora_fin!)}
                           </span>
                         </TableCell>
                         <TableCell>{b.motivo}</TableCell>

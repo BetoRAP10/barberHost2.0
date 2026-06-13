@@ -16,13 +16,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar } from "@/components/ui/calendar";
 import { EmptyState, EstadoBadge, LoadingState } from "@/components/shared/status-badge";
 import { exportTableToPdf } from "@/lib/pdf-export";
-import { formatDateTime, formatCurrency } from "@/lib/utils";
+import { formatDateTime, formatCurrency, formatTime, parseFechaHoraLocal, cn } from "@/lib/utils";
 import { ESTADOS_CITA, type CitaConDetalles, type EstadoCita } from "@/lib/types";
 import { handleAdminUnauthorized } from "@/lib/admin-utils";
 import { format, isSameDay, startOfWeek, endOfWeek, eachDayOfInterval, startOfMonth, endOfMonth, isSameMonth, addMonths, subMonths } from "date-fns";
 import { es } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 type SortKey = "fecha_hora" | "cliente_nombre" | "servicio_nombre" | "estado";
 
@@ -45,8 +44,12 @@ export default function AdminCitasPage() {
   const esperandoPago = (c: CitaConDetalles) =>
     !!c.stripe_session_id && c.stripe_payment_status !== "pagado";
 
+  const puedeCompletar = (c: CitaConDetalles) =>
+    c.estado === "confirmada" ||
+    (c.estado === "pendiente" && (!c.stripe_session_id || c.stripe_payment_status === "pagado"));
+
   const puedeConfirmar = (c: CitaConDetalles) =>
-    c.estado === "pendiente" && !esperandoPago(c);
+    c.estado === "pendiente" && !esperandoPago(c) && c.stripe_payment_status !== "pagado";
 
   const load = async () => {
     setLoading(true);
@@ -102,11 +105,7 @@ export default function AdminCitasPage() {
     });
   }, [filtered, sortKey, sortAsc]);
 
-  const cambiarEstado = async (id: number, estado: EstadoCita, fechaHora?: string) => {
-    if (estado === "completada" && fechaHora && new Date(fechaHora) > new Date()) {
-      toast.error("No puedes completar una cita que aún no ha ocurrido");
-      return;
-    }
+  const cambiarEstado = async (id: number, estado: EstadoCita) => {
     try {
       const res = await fetch("/api/citas", {
         method: "POST",
@@ -194,7 +193,7 @@ export default function AdminCitasPage() {
 
   // Calendario: días con citas
   const citasDelDia = (date: Date) =>
-    citas.filter((c) => isSameDay(new Date(c.fecha_hora), date) && c.estado !== "cancelada");
+    citas.filter((c) => isSameDay(parseFechaHoraLocal(c.fecha_hora), date) && c.estado !== "cancelada");
 
   const monthDays = useMemo(() => {
     const start = startOfWeek(startOfMonth(calMonth), { weekStartsOn: 1 });
@@ -250,7 +249,11 @@ export default function AdminCitasPage() {
                     </span>
                   </div>
                   <div className="flex gap-1 pt-1 border-t border-orange-200">
-                    {puedeConfirmar(cita) ? (
+                    {puedeCompletar(cita) ? (
+                      <Button size="sm" className="flex-1 h-7 text-xs" onClick={() => cambiarEstado(cita.id, "completada")}>
+                        Completar
+                      </Button>
+                    ) : puedeConfirmar(cita) ? (
                       <Button size="sm" className="flex-1 h-7 text-xs" onClick={() => cambiarEstado(cita.id, "confirmada")}>
                         Confirmar
                       </Button>
@@ -412,17 +415,16 @@ export default function AdminCitasPage() {
                               </>
                             )}
                             {/* confirmada (pago listo): solo completar o reagendar */}
-                            {cita.estado === "confirmada" && (
+                            {puedeCompletar(cita) && (
                               <>
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  disabled={new Date(cita.fecha_hora) > new Date()}
-                                  title={new Date(cita.fecha_hora) > new Date() ? "La cita aún no ha ocurrido" : ""}
-                                  onClick={() => cambiarEstado(cita.id, "completada", cita.fecha_hora)}
+                                  onClick={() => cambiarEstado(cita.id, "completada")}
                                 >
                                   Completar
                                 </Button>
+                                {cita.estado === "confirmada" && (
                                 <Button
                                   size="sm"
                                   variant="secondary"
@@ -438,6 +440,7 @@ export default function AdminCitasPage() {
                                 >
                                   Reagendar
                                 </Button>
+                                )}
                               </>
                             )}
                           </div>
@@ -510,9 +513,9 @@ export default function AdminCitasPage() {
                                 ? "bg-orange-200 text-orange-800 dark:bg-orange-800 dark:text-orange-100"
                                 : "bg-primary/20 text-primary"
                             )}
-                            title={`${format(new Date(c.fecha_hora), "HH:mm")} — ${c.cliente_nombre} (${c.servicio_nombre})`}
+                            title={`${formatTime(c.fecha_hora)} — ${c.cliente_nombre} (${c.servicio_nombre})`}
                           >
-                            {format(new Date(c.fecha_hora), "HH:mm")} {c.cliente_nombre.split(" ")[0]}
+                            {formatTime(c.fecha_hora)} {c.cliente_nombre.split(" ")[0]}
                           </div>
                         ))}
                         {dayCitas.length > 3 && (
@@ -550,7 +553,7 @@ export default function AdminCitasPage() {
             <div className="space-y-4">
               <div className="text-sm text-muted-foreground space-y-0.5">
                 <p>Servicio: <strong>{reprogramarCita.servicio_nombre}</strong></p>
-                <p>Hora actual: <strong>{format(new Date(reprogramarCita.fecha_hora), "dd MMM yyyy · HH:mm", { locale: es })}</strong></p>
+                <p>Hora actual: <strong>{formatDateTime(reprogramarCita.fecha_hora)}</strong></p>
               </div>
               {daysLoadingReagendar && (
                 <p className="text-xs text-muted-foreground text-center animate-pulse">

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCitaById } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
+import { formatDateTime } from "@/lib/utils";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -48,12 +49,7 @@ export async function POST(request: Request) {
     const total     = cita.precio_total ?? 0;
     const referencia = cita.id;
 
-    const fecha = cita.fecha_hora
-      ? new Date(String(cita.fecha_hora).slice(0, 19)).toLocaleString("es-MX", {
-          weekday: "long", year: "numeric", month: "long", day: "numeric",
-          hour: "2-digit", minute: "2-digit", hour12: false,
-        })
-      : "";
+    const fecha = cita.fecha_hora ? formatDateTime(cita.fecha_hora) : "";
 
     const html = `
 <!DOCTYPE html>

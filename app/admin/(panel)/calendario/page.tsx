@@ -15,10 +15,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EstadoBadge, LoadingState } from "@/components/shared/status-badge";
-import { formatDateTime, formatCurrency } from "@/lib/utils";
+import { formatDateTime, formatCurrency, formatTime, parseFechaHoraLocal, fechaHoraParts, cn } from "@/lib/utils";
 import { HORARIO_APERTURA, HORARIO_CIERRE, type CitaConDetalles } from "@/lib/types";
 import { handleAdminUnauthorized } from "@/lib/admin-utils";
-import { cn } from "@/lib/utils";
 
 const HORAS = Array.from({ length: HORARIO_CIERRE - HORARIO_APERTURA }, (_, i) => i + HORARIO_APERTURA);
 
@@ -54,7 +53,7 @@ export default function AdminCalendarioPage() {
 
   const citasDelDia = (date: Date) =>
     citas.filter(
-      (c) => c.fecha_hora.startsWith(format(date, "yyyy-MM-dd")) && c.estado !== "cancelada"
+      (c) => fechaHoraParts(c.fecha_hora).fecha === format(date, "yyyy-MM-dd") && c.estado !== "cancelada"
     );
 
   const monthDays = useMemo(() => {
@@ -162,7 +161,7 @@ export default function AdminCalendarioPage() {
                                 : "bg-primary/15 text-primary"
                             )}
                           >
-                            {format(new Date(c.fecha_hora), "HH:mm")} · {c.cliente_nombre.split(" ")[0]}
+                            {formatTime(c.fecha_hora)} · {c.cliente_nombre.split(" ")[0]}
                           </div>
                         ))}
                         {dayCitas.length > 3 && (
@@ -212,7 +211,7 @@ export default function AdminCalendarioPage() {
                               : "bg-primary/10 text-primary border border-primary/20"
                           )}
                         >
-                          <span className="font-semibold">{format(new Date(c.fecha_hora), "HH:mm")}</span>
+                          <span className="font-semibold">{formatTime(c.fecha_hora)}</span>
                           <span className="block truncate">{c.cliente_nombre.split(" ")[0]}</span>
                         </button>
                       ))
@@ -245,7 +244,7 @@ export default function AdminCalendarioPage() {
               <div className="relative">
                 {HORAS.map((hour) => {
                   const hourCitas = citasDelDia(currentDate).filter(
-                    (c) => parseInt(c.fecha_hora.split("T")[1]?.slice(0, 2) ?? "-1", 10) === hour
+                    (c) => parseInt(fechaHoraParts(c.fecha_hora).hora.split(":")[0] ?? "-1", 10) === hour
                   );
                   const isCurrentHour = new Date().getHours() === hour && isSameDay(currentDate, new Date());
                   return (
@@ -274,10 +273,10 @@ export default function AdminCalendarioPage() {
                           </div>
                         ) : (
                           hourCitas.map((c) => {
-                            const inicio  = format(new Date(c.fecha_hora), "HH:mm");
-                            const durMin  = c.duracion_total > 0 ? c.duracion_total : c.servicio_duracion;
-                            const finDate = new Date(new Date(c.fecha_hora).getTime() + durMin * 60000);
-                            const fin     = format(finDate, "HH:mm");
+                            const inicio = formatTime(c.fecha_hora);
+                            const durMin = c.duracion_total > 0 ? c.duracion_total : c.servicio_duracion;
+                            const finDate = new Date(parseFechaHoraLocal(c.fecha_hora).getTime() + durMin * 60000);
+                            const fin = formatTime(finDate);
                             return (
                               <button
                                 key={c.id}

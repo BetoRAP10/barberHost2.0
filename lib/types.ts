@@ -120,4 +120,14 @@ export const CATEGORIAS_SERVICIO = [
 
 export const HORARIO_APERTURA = 9;
 export const HORARIO_CIERRE = 19;
-export const INTERVALO_MINUTOS = 30;
+export const INTERVALO_MINUTOS = 15;
+
+/** Fecha sentinel para tiempos muertos recurrentes (hora de comida, etc.). */
+export const FECHA_TIEMPO_MUERTO = "2000-01-01";
+
+export function isTiempoMuertoRecurrente(b: Pick<DiaBloqueado, "tipo" | "fecha" | "hora_inicio" | "hora_fin">): boolean {
+  return (
+    b.tipo === "diario" ||
+    (b.fecha === FECHA_TIEMPO_MUERTO && !!b.hora_inicio && !!b.hora_fin)
+  );
+}
