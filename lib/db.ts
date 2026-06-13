@@ -2,9 +2,12 @@ import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
 import { format } from "date-fns";
 import {
+  FECHA_INDEFINIDO,
+  FECHA_TIEMPO_MUERTO,
   HORARIO_APERTURA,
   HORARIO_CIERRE,
   INTERVALO_MINUTOS,
+  isBloqueoIndefinido,
   isTiempoMuertoRecurrente,
 } from "./types";
 import type {
@@ -97,12 +100,24 @@ function toServicio(r: any): Servicio {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toBloqueo(r: any): DiaBloqueado {
+  let tipo: TipoBloqueo = "dia";
+  if (isBloqueoIndefinido(r)) tipo = "indefinido";
+  else if (isTiempoMuertoRecurrente(r)) tipo = "diario";
+
   return {
-    ...r,
-    fecha_fin: r.fecha_fin ?? null,
-    hasta_nuevo_aviso: r.hasta_nuevo_aviso ? 1 : 0,
+    id: r.id,
+    tipo,
+    fecha: r.fecha,
+    fecha_fin: null,
+    hora_inicio: r.hora_inicio ?? null,
+    hora_fin: r.hora_fin ?? null,
+    motivo: r.motivo ?? "",
+    hasta_nuevo_aviso: tipo === "indefinido" ? 1 : 0,
+    creado_en: r.creado_en ?? "",
   };
 }
+
+const SELECT_BLOQUEO = "id, fecha, hora_inicio, hora_fin, motivo, creado_en";
 
 const SELECT_CITA = "*, servicios:servicio_id(*), clientes:cliente_id(*)";
 
@@ -485,8 +500,7 @@ export async function getDiasBloqueados(): Promise<DiaBloqueado[]> {
   await ensureInit();
   const { data } = await supabase
     .from("dias_bloqueados")
-    .select("*")
-    .order("hasta_nuevo_aviso", { ascending: false })
+    .select(SELECT_BLOQUEO)
     .order("fecha", { ascending: true });
   return (data ?? []).map(toBloqueo);
 }
@@ -496,12 +510,22 @@ export async function getEstadoTienda(): Promise<EstadoTienda> {
   const { data } = await supabase
     .from("dias_bloqueados")
     .select("id, motivo")
-    .eq("hasta_nuevo_aviso", true)
+    .eq("fecha", FECHA_INDEFINIDO)
     .limit(1)
     .single();
   return data
     ? { abierta: false, motivo: data.motivo, bloqueo_id: data.id }
     : { abierta: true };
+}
+
+function resolveFechaBloqueo(data: {
+  tipo?: TipoBloqueo;
+  fecha: string;
+  hasta_nuevo_aviso?: boolean;
+}): string {
+  if (data.tipo === "indefinido" || data.hasta_nuevo_aviso) return FECHA_INDEFINIDO;
+  if (data.tipo === "diario") return FECHA_TIEMPO_MUERTO;
+  return data.fecha;
 }
 
 export async function createDiaBloqueado(data: {
@@ -514,17 +538,13 @@ export async function createDiaBloqueado(data: {
   hasta_nuevo_aviso?: boolean;
 }): Promise<number> {
   await ensureInit();
-  const tipo = data.tipo ?? "dia";
-  const esIndefinido = tipo === "indefinido" || data.hasta_nuevo_aviso === true;
   const { data: row, error } = await supabase
     .from("dias_bloqueados")
     .insert({
-      tipo:              esIndefinido ? "indefinido" : tipo,
-      fecha:             data.fecha,
-      hora_inicio:       data.hora_inicio    ?? null,
-      hora_fin:          data.hora_fin       ?? null,
-      motivo:            data.motivo,
-      hasta_nuevo_aviso: esIndefinido,
+      fecha:       resolveFechaBloqueo(data),
+      hora_inicio: data.hora_inicio ?? null,
+      hora_fin:    data.hora_fin    ?? null,
+      motivo:      data.motivo,
     })
     .select("id")
     .single();
@@ -539,14 +559,13 @@ export async function deleteDiaBloqueado(id: number): Promise<void> {
 
 export async function bloquearHastaAviso(motivo: string): Promise<number> {
   await ensureInit();
-  await supabase.from("dias_bloqueados").delete().eq("hasta_nuevo_aviso", true);
-  const today = format(new Date(), "yyyy-MM-dd");
-  return createDiaBloqueado({ tipo: "indefinido", fecha: today, motivo, hasta_nuevo_aviso: true });
+  await supabase.from("dias_bloqueados").delete().eq("fecha", FECHA_INDEFINIDO);
+  return createDiaBloqueado({ tipo: "indefinido", fecha: FECHA_INDEFINIDO, motivo });
 }
 
 export async function reactivarTienda(): Promise<void> {
   await ensureInit();
-  await supabase.from("dias_bloqueados").delete().eq("hasta_nuevo_aviso", true);
+  await supabase.from("dias_bloqueados").delete().eq("fecha", FECHA_INDEFINIDO);
 }
 
 // ─── Disponibilidad ───────────────────────────────────────────────────────────
@@ -556,29 +575,12 @@ function normHora(hora: string): string {
 }
 
 function isFechaBlocked(fecha: string, bloqueos: DiaBloqueado[]): boolean {
-  const date = new Date(fecha + "T12:00:00");
   for (const b of bloqueos) {
     if (isTiempoMuertoRecurrente(b)) continue;
-    if (b.hasta_nuevo_aviso) return true;
-    const tipo = b.tipo ?? "dia";
-    if (tipo === "indefinido") return true;
-    if (tipo === "dia" && b.fecha === fecha) {
+    if (isBloqueoIndefinido(b)) return true;
+    if (b.fecha === fecha) {
       if (!b.hora_inicio && !b.hora_fin) return true;
-      continue;
     }
-    if (tipo === "rango") {
-      const fin = b.fecha_fin ?? b.fecha;
-      if (fecha >= b.fecha && fecha <= fin) return true;
-    }
-    if (tipo === "semana") {
-      const blockDate = new Date(b.fecha + "T12:00:00");
-      const blockDow  = (blockDate.getDay() + 6) % 7;
-      const dateDow   = (date.getDay() + 6) % 7;
-      const blockMon  = new Date(blockDate.getTime() - blockDow * 86400000);
-      const dateMon   = new Date(date.getTime() - dateDow * 86400000);
-      if (blockMon.toISOString().split("T")[0] === dateMon.toISOString().split("T")[0]) return true;
-    }
-    if (tipo === "mes" && fecha.substring(0, 7) === b.fecha.substring(0, 7)) return true;
   }
   return false;
 }
@@ -590,7 +592,8 @@ function isHoraBlocked(fecha: string, hora: string, bloqueos: DiaBloqueado[]): b
       if (b.hora_inicio && b.hora_fin && h >= normHora(b.hora_inicio) && h < normHora(b.hora_fin)) return true;
       continue;
     }
-    if (!isFechaBlocked(fecha, [b])) continue;
+    if (isBloqueoIndefinido(b)) return true;
+    if (b.fecha !== fecha) continue;
     if (!b.hora_inicio && !b.hora_fin) return true;
     if (b.hora_inicio && b.hora_fin && h >= normHora(b.hora_inicio) && h < normHora(b.hora_fin)) return true;
   }
@@ -606,12 +609,7 @@ function slotFreeInMemory(
   bloqueos: DiaBloqueado[],
   citas: CitaSlot[]
 ): boolean {
-  if (isFechaBlocked(fecha, bloqueos)) {
-    const hasTiempo = bloqueos.some(
-      (b) => isFechaBlocked(fecha, [b]) && (b.hora_inicio || b.hora_fin)
-    );
-    if (!hasTiempo) return false;
-  }
+  if (isFechaBlocked(fecha, bloqueos)) return false;
   if (isHoraBlocked(fecha, hora, bloqueos)) return false;
 
   const start = new Date(`${fecha}T${hora}:00`);
@@ -626,7 +624,7 @@ function slotFreeInMemory(
 }
 
 async function fetchBloqueos(): Promise<DiaBloqueado[]> {
-  const { data } = await supabase.from("dias_bloqueados").select("*");
+  const { data } = await supabase.from("dias_bloqueados").select(SELECT_BLOQUEO);
   return (data ?? []).map(toBloqueo);
 }
 

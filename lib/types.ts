@@ -125,9 +125,13 @@ export const INTERVALO_MINUTOS = 15;
 /** Fecha sentinel para tiempos muertos recurrentes (hora de comida, etc.). */
 export const FECHA_TIEMPO_MUERTO = "2000-01-01";
 
-export function isTiempoMuertoRecurrente(b: Pick<DiaBloqueado, "tipo" | "fecha" | "hora_inicio" | "hora_fin">): boolean {
-  return (
-    b.tipo === "diario" ||
-    (b.fecha === FECHA_TIEMPO_MUERTO && !!b.hora_inicio && !!b.hora_fin)
-  );
+/** Fecha sentinel para cierre de tienda hasta nuevo aviso. */
+export const FECHA_INDEFINIDO = "2099-12-31";
+
+export function isTiempoMuertoRecurrente(b: Pick<DiaBloqueado, "fecha" | "hora_inicio" | "hora_fin">): boolean {
+  return b.fecha === FECHA_TIEMPO_MUERTO && !!b.hora_inicio && !!b.hora_fin;
+}
+
+export function isBloqueoIndefinido(b: Pick<DiaBloqueado, "fecha">): boolean {
+  return b.fecha === FECHA_INDEFINIDO;
 }
