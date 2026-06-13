@@ -63,7 +63,6 @@ export async function POST(request: Request) {
     const id = await createDiaBloqueado({
       tipo:        body.tipo || "dia",
       fecha:       body.fecha,
-      fecha_fin:   body.fecha_fin || null,
       hora_inicio: normHora(body.hora_inicio),
       hora_fin:    normHora(body.hora_fin),
       motivo:      body.motivo,

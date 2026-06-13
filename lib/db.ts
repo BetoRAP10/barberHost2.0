@@ -97,7 +97,11 @@ function toServicio(r: any): Servicio {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toBloqueo(r: any): DiaBloqueado {
-  return { ...r, hasta_nuevo_aviso: r.hasta_nuevo_aviso ? 1 : 0 };
+  return {
+    ...r,
+    fecha_fin: r.fecha_fin ?? null,
+    hasta_nuevo_aviso: r.hasta_nuevo_aviso ? 1 : 0,
+  };
 }
 
 const SELECT_CITA = "*, servicios:servicio_id(*), clientes:cliente_id(*)";
@@ -517,7 +521,6 @@ export async function createDiaBloqueado(data: {
     .insert({
       tipo:              esIndefinido ? "indefinido" : tipo,
       fecha:             data.fecha,
-      fecha_fin:         data.fecha_fin      ?? null,
       hora_inicio:       data.hora_inicio    ?? null,
       hora_fin:          data.hora_fin       ?? null,
       motivo:            data.motivo,
