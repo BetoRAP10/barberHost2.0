@@ -1,24 +1,25 @@
-import Link from "next/link";
 import { Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 export function PublicHeader() {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
-        <Link href="/" className="flex items-center gap-2 font-semibold text-primary">
+        <a href={`${BASE}/`} className="flex items-center gap-2 font-semibold text-primary">
           <Scissors className="size-6" />
           <span>BarberHost</span>
-        </Link>
+        </a>
         <nav className="flex items-center gap-2">
           <Button variant="ghost" asChild>
-            <Link href="/">Servicios</Link>
+            <a href={`${BASE}/`}>Servicios</a>
           </Button>
           <Button variant="ghost" asChild>
-            <Link href="/mis-citas">Mis Citas</Link>
+            <a href={`${BASE}/mis-citas/`}>Mis Citas</a>
           </Button>
           <Button asChild>
-            <Link href="/reservar">Reservar Cita</Link>
+            <a href={`${BASE}/reservar/`}>Reservar Cita</a>
           </Button>
         </nav>
       </div>

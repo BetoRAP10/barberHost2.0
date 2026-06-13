@@ -10,12 +10,13 @@ export const clienteSchema = z.object({
 export const servicioSchema = z.object({
   nombre: z.string().min(2, "El nombre es obligatorio"),
   descripcion: z.string().min(5, "La descripción es obligatoria"),
-  duracion_minutos: z.coerce.number().superRefine((v, ctx) => {
-    if (v !== 30 && v !== 60) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "La duración debe ser 30 o 60 minutos" });
-    }
-  }),
-  precio: z.coerce.number().min(0, "El precio debe ser positivo"),
+  duracion_minutos: z.coerce
+    .number()
+    .int("La duración debe ser un número entero")
+    .min(15, "La duración mínima es 15 minutos")
+    .max(180, "La duración máxima es 180 minutos")
+    .refine((v) => v % 15 === 0, "La duración debe ser múltiplo de 15 (ej. 15, 30, 45, 60, 90...)"),
+  precio: z.coerce.number().min(1, "El precio debe ser mayor a $0"),
   categoria: z.string().min(1, "Selecciona una categoría"),
 });
 

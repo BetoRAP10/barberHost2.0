@@ -49,12 +49,20 @@ async function runSeed(): Promise<void> {
       .from("usuarios_admin")
       .select("*", { count: "exact", head: true });
     if (ac === 0) {
-      const hash = await bcrypt.hash("admin123", 10);
-      await supabase.from("usuarios_admin").insert({
-        nombre: "Administrador",
-        email: "admin@barberhost.com",
-        contrasena_hash: hash,
-      });
+      const email = process.env.ADMIN_INITIAL_EMAIL?.trim().toLowerCase();
+      const password = process.env.ADMIN_INITIAL_PASSWORD;
+      if (email && password) {
+        const hash = await bcrypt.hash(password, 12);
+        await supabase.from("usuarios_admin").insert({
+          nombre: process.env.ADMIN_INITIAL_NAME?.trim() || "Administrador",
+          email,
+          contrasena_hash: hash,
+        });
+      } else {
+        console.warn(
+          "[db] Sin administradores. Define ADMIN_INITIAL_EMAIL y ADMIN_INITIAL_PASSWORD para crear el primero."
+        );
+      }
     }
   } catch {
     // Si hay error RLS en usuarios_admin, continúa de todos modos
@@ -627,15 +635,12 @@ async function fetchCitasForDate(fecha: string, excludeId?: number): Promise<Cit
   if (error) throw new Error(`[fetchCitasForDate] ${error.message}`);
 
   const raw = data ?? [];
-  console.log(`[fetchCitasForDate] fecha=${fecha} excludeId=${excludeId ?? "none"} rawCount=${raw.length}`, raw.map((c: any) => ({ id: c.id, fecha_hora: c.fecha_hora, estado: c.estado, stripe_payment_status: c.stripe_payment_status, creado_en: c.creado_en })));
 
   const result = raw
     .filter((c: any) => {
       if (c.estado !== "pendiente") return true;
       if (c.stripe_payment_status === "pendiente") return true;
-      const keep = new Date(c.creado_en).getTime() >= fifteenMinAgoMs;
-      if (!keep) console.log(`[fetchCitasForDate] descartando hold expirado id=${c.id} creado_en=${c.creado_en}`);
-      return keep;
+      return new Date(c.creado_en).getTime() >= fifteenMinAgoMs;
     })
     .map((c: any) => ({
       fecha_hora:   c.fecha_hora,
@@ -645,8 +650,6 @@ async function fetchCitasForDate(fecha: string, excludeId?: number): Promise<Cit
           ? (c.servicios as any).duracion_minutos
           : INTERVALO_MINUTOS,
     }));
-
-  console.log(`[fetchCitasForDate] filteredCount=${result.length}`, result);
   return result;
 }
 
@@ -709,7 +712,8 @@ export async function getSlotsStatus(
 export async function getAvailableDays(
   year: number,
   month: number,
-  duracionMinutos: number
+  duracionMinutos: number,
+  excludeCitaId?: number
 ): Promise<string[]> {
   const estado = await getEstadoTienda();
   if (!estado.abierta) return [];
@@ -723,14 +727,17 @@ export async function getAvailableDays(
     fetchBloqueos(),
     supabase
       .from("citas")
-      .select("fecha_hora, duracion_total, estado, creado_en, servicios:servicio_id(duracion_minutos)")
+      .select("id, fecha_hora, duracion_total, estado, creado_en, servicios:servicio_id(duracion_minutos)")
       .gte("fecha_hora", startDate + "T00:00:00")
       .lte("fecha_hora", endDate   + "T23:59:59")
       .neq("estado", "cancelada"),
   ]);
 
   const citaSlots: CitaSlot[] = (rawCitas ?? [])
-    .filter((c: any) => !(c.estado === "pendiente" && new Date(c.creado_en).getTime() < thirtyMinAgoMs))
+    .filter((c: any) => {
+      if (excludeCitaId && c.id === excludeCitaId) return false;
+      return !(c.estado === "pendiente" && new Date(c.creado_en).getTime() < thirtyMinAgoMs);
+    })
     .map((c: any) => ({
       fecha_hora:   c.fecha_hora,
       duracion_eff: c.duracion_total > 0

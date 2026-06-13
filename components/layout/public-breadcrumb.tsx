@@ -1,5 +1,6 @@
-import Link from "next/link";
 import { ChevronRight, Home } from "lucide-react";
+
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 export interface BreadcrumbItem {
   label: string;
@@ -9,16 +10,16 @@ export interface BreadcrumbItem {
 export function PublicBreadcrumb({ items }: { items: BreadcrumbItem[] }) {
   return (
     <nav aria-label="breadcrumb" className="mb-6 flex items-center gap-1 text-sm text-muted-foreground">
-      <Link href="/" className="flex items-center hover:text-primary transition-colors">
+      <a href={`${BASE}/`} className="flex items-center hover:text-primary transition-colors">
         <Home className="size-4" />
-      </Link>
+      </a>
       {items.map((item, i) => (
         <span key={i} className="flex items-center gap-1">
           <ChevronRight className="size-4 shrink-0" />
           {item.href ? (
-            <Link href={item.href} className="hover:text-primary transition-colors">
+            <a href={`${BASE}${item.href}`} className="hover:text-primary transition-colors">
               {item.label}
-            </Link>
+            </a>
           ) : (
             <span className="font-medium text-foreground">{item.label}</span>
           )}

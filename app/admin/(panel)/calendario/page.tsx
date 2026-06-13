@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, isSameDay, isSameMonth, addMonths, subMonths,
   addDays, subDays,
 } from "date-fns";
 import { es } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, Clock, User, Scissors, CreditCard } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, User, Scissors, CreditCard, RefreshCw } from "lucide-react";
 import { AdminBreadcrumb } from "@/components/layout/admin-breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { EstadoBadge, LoadingState } from "@/components/shared/status-badge";
 import { formatDateTime, formatCurrency } from "@/lib/utils";
 import { HORARIO_APERTURA, HORARIO_CIERRE, type CitaConDetalles } from "@/lib/types";
+import { handleAdminUnauthorized } from "@/lib/admin-utils";
 import { cn } from "@/lib/utils";
 
 const HORAS = Array.from({ length: HORARIO_CIERRE - HORARIO_APERTURA }, (_, i) => i + HORARIO_APERTURA);
@@ -24,16 +25,32 @@ const HORAS = Array.from({ length: HORARIO_CIERRE - HORARIO_APERTURA }, (_, i) =
 export default function AdminCalendarioPage() {
   const [citas, setCitas]               = useState<CitaConDetalles[]>([]);
   const [loading, setLoading]           = useState(true);
+  const [lastRefresh, setLastRefresh]   = useState(new Date());
   const [currentDate, setCurrentDate]   = useState(new Date());
   const [view, setView]                 = useState<"mes" | "semana" | "dia">("mes");
   const [selectedCita, setSelectedCita] = useState<CitaConDetalles | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetch("/api/citas")
-      .then((r) => r.json())
-      .then((d) => setCitas(Array.isArray(d) ? d : []))
+      .then((r) => {
+        if (!handleAdminUnauthorized(r)) return null;
+        return r.json();
+      })
+      .then((d) => {
+        if (d === null) return;
+        setCitas(Array.isArray(d) ? d : []);
+        setLastRefresh(new Date());
+      })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    load();
+    // Auto-refresh cada 60 segundos
+    intervalRef.current = setInterval(load, 60_000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [load]);
 
   const citasDelDia = (date: Date) =>
     citas.filter(
@@ -68,9 +85,17 @@ export default function AdminCalendarioPage() {
   return (
     <div>
       <AdminBreadcrumb items={[{ label: "Calendario" }]} />
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Calendario</h1>
+      <div className="mb-6 flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold">Calendario</h1>
+          <span className="text-xs text-muted-foreground">
+            Act. {lastRefresh.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" onClick={load} title="Actualizar ahora">
+            <RefreshCw className="size-4" />
+          </Button>
           <Button variant="outline" size="icon" onClick={prev}><ChevronLeft className="size-4" /></Button>
           <span className="min-w-[200px] text-center font-medium capitalize text-sm">
             {view === "dia"
@@ -211,6 +236,12 @@ export default function AdminCalendarioPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {/* Advertencia de domingo */}
+              {currentDate.getDay() === 0 && (
+                <div className="mb-4 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-medium text-orange-700">
+                  Este día es domingo — la barbería está cerrada. No se aceptan citas.
+                </div>
+              )}
               <div className="relative">
                 {HORAS.map((hour) => {
                   const hourCitas = citasDelDia(currentDate).filter(

@@ -11,15 +11,20 @@ export async function POST(request: Request) {
 
   let event: Stripe.Event;
 
-  if (secret && secret !== "whsec_PENDIENTE") {
-    // Producción: verificar firma
+  const secretConfigured = secret && secret !== "whsec_PENDIENTE";
+
+  if (secretConfigured) {
     try {
       event = stripe.webhooks.constructEvent(body, sig, secret);
     } catch {
       return NextResponse.json({ error: "Firma inválida" }, { status: 400 });
     }
+  } else if (process.env.NODE_ENV === "production") {
+    // En producción SIEMPRE se requiere STRIPE_WEBHOOK_SECRET
+    console.error("[webhook] STRIPE_WEBHOOK_SECRET no configurado en producción");
+    return NextResponse.json({ error: "Webhook no configurado correctamente" }, { status: 500 });
   } else {
-    // Desarrollo sin webhook secret: parsear el evento directamente
+    // Solo en desarrollo: parsear sin verificar firma
     try {
       event = JSON.parse(body) as Stripe.Event;
     } catch {

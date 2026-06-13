@@ -18,6 +18,7 @@ import { EmptyState, EstadoBadge, LoadingState } from "@/components/shared/statu
 import { exportTableToPdf } from "@/lib/pdf-export";
 import { formatDateTime, formatCurrency } from "@/lib/utils";
 import { ESTADOS_CITA, type CitaConDetalles, type EstadoCita } from "@/lib/types";
+import { handleAdminUnauthorized } from "@/lib/admin-utils";
 import { format, isSameDay, startOfWeek, endOfWeek, eachDayOfInterval, startOfMonth, endOfMonth, isSameMonth, addMonths, subMonths } from "date-fns";
 import { es } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -37,30 +38,42 @@ export default function AdminCitasPage() {
   const [newSlot, setNewSlot] = useState("");
   const [slots, setSlots] = useState<string[]>([]);
   const [calMonth, setCalMonth] = useState(new Date());
+  const [availableDaysReagendar, setAvailableDaysReagendar] = useState<string[]>([]);
+  const [daysLoadingReagendar, setDaysLoadingReagendar] = useState(false);
 
-  const load = () => {
+
+  const esperandoPago = (c: CitaConDetalles) =>
+    !!c.stripe_session_id && c.stripe_payment_status !== "pagado";
+
+  const puedeConfirmar = (c: CitaConDetalles) =>
+    c.estado === "pendiente" && !esperandoPago(c);
+
+  const load = async () => {
     setLoading(true);
-    fetch("/api/citas")
-      .then((r) => r.json())
-      .then(async (data: CitaConDetalles[]) => {
-        setCitas(data);
-        // Auto-verificar citas pendientes con stripe_session_id para confirmarlas si ya fueron pagadas
-        const pendientesConStripe = data.filter(
-          (c) => c.estado === "pendiente" && c.stripe_session_id && c.stripe_payment_status !== "pagado"
+    try {
+      const r = await fetch("/api/citas");
+      if (!handleAdminUnauthorized(r)) return;
+      const data = await r.json();
+      if (!Array.isArray(data)) { setLoading(false); return; }
+      setCitas(data);
+      const pendientesConStripe = data.filter(
+        (c: CitaConDetalles) => c.estado === "pendiente" && c.stripe_session_id && c.stripe_payment_status !== "pagado"
+      );
+      if (pendientesConStripe.length > 0) {
+        await Promise.allSettled(
+          pendientesConStripe.map((c: CitaConDetalles) =>
+            fetch(`/api/stripe/verify?session_id=${encodeURIComponent(c.stripe_session_id!)}`)
+              .catch(() => null)
+          )
         );
-        if (pendientesConStripe.length > 0) {
-          await Promise.allSettled(
-            pendientesConStripe.map((c) =>
-              fetch(`/api/stripe/verify?session_id=${encodeURIComponent(c.stripe_session_id!)}`)
-                .catch(() => null)
-            )
-          );
-          // Recargar citas después de verificar
-          const r2 = await fetch("/api/citas");
-          if (r2.ok) setCitas(await r2.json());
-        }
-      })
-      .finally(() => setLoading(false));
+        const r2 = await fetch("/api/citas");
+        if (r2.ok) { const d2 = await r2.json(); if (Array.isArray(d2)) setCitas(d2); }
+      }
+    } catch {
+      toast.error("Error al cargar citas");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);
@@ -89,18 +102,66 @@ export default function AdminCitasPage() {
     });
   }, [filtered, sortKey, sortAsc]);
 
-  const cambiarEstado = async (id: number, estado: EstadoCita) => {
+  const cambiarEstado = async (id: number, estado: EstadoCita, fechaHora?: string) => {
+    if (estado === "completada" && fechaHora && new Date(fechaHora) > new Date()) {
+      toast.error("No puedes completar una cita que aún no ha ocurrido");
+      return;
+    }
     try {
       const res = await fetch("/api/citas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "estado", id, estado }),
       });
-      if (!res.ok) throw new Error();
+      if (!handleAdminUnauthorized(res)) return;
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error ?? "Error al actualizar");
+        return;
+      }
       toast.success(`Cita marcada como ${estado}`);
       load();
     } catch {
       toast.error("Error al actualizar");
+    }
+  };
+
+  const cancelarCita = async (cita: CitaConDetalles) => {
+    const msg = cita.stripe_payment_status === "pagado"
+      ? "Esta cita tiene un pago confirmado — se procesará un reembolso automático. ¿Continuar?"
+      : "¿Cancelar esta cita?";
+    if (!confirm(msg)) return;
+    try {
+      const res = await fetch("/api/citas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancelar", id: cita.id }),
+      });
+      if (!handleAdminUnauthorized(res)) return;
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error ?? "Error al cancelar");
+        return;
+      }
+      toast.success(data.reembolsado ? "Cita cancelada y reembolsada" : "Cita cancelada");
+      load();
+    } catch {
+      toast.error("Error al cancelar");
+    }
+  };
+
+  const loadDaysReagendar = async (duracion: number, date: Date, excludeId: number) => {
+    setDaysLoadingReagendar(true);
+    try {
+      const res = await fetch(
+        `/api/citas?year=${date.getFullYear()}&month=${date.getMonth()}&duracion=${duracion}&exclude_id=${excludeId}`
+      );
+      const days = await res.json();
+      setAvailableDaysReagendar(Array.isArray(days) ? days : []);
+    } catch {
+      setAvailableDaysReagendar([]);
+    } finally {
+      setDaysLoadingReagendar(false);
     }
   };
 
@@ -189,10 +250,21 @@ export default function AdminCitasPage() {
                     </span>
                   </div>
                   <div className="flex gap-1 pt-1 border-t border-orange-200">
-                    <Button size="sm" className="flex-1 h-7 text-xs" onClick={() => cambiarEstado(cita.id, "confirmada")}>
-                      Confirmar
-                    </Button>
-                    <Button size="sm" variant="destructive" className="h-7 text-xs px-2" onClick={() => cambiarEstado(cita.id, "cancelada")}>
+                    {puedeConfirmar(cita) ? (
+                      <Button size="sm" className="flex-1 h-7 text-xs" onClick={() => cambiarEstado(cita.id, "confirmada")}>
+                        Confirmar
+                      </Button>
+                    ) : (
+                      <span className="flex-1 text-xs text-muted-foreground italic flex items-center justify-center">
+                        Esperando pago…
+                      </span>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-7 text-xs px-2"
+                      onClick={() => cancelarCita(cita)}
+                    >
                       Cancelar
                     </Button>
                   </div>
@@ -319,25 +391,50 @@ export default function AdminCitasPage() {
                               </PopoverContent>
                             </Popover>
 
-                            {/* pendiente sin Stripe: confirmar manualmente */}
-                            {cita.estado === "pendiente" && !cita.stripe_session_id && (
+                            {/* pendiente sin pago Stripe: confirmar o cancelar manualmente */}
+                            {puedeConfirmar(cita) && (
                               <>
                                 <Button size="sm" variant="outline" onClick={() => cambiarEstado(cita.id, "confirmada")}>Confirmar</Button>
-                                <Button size="sm" variant="destructive" onClick={() => cambiarEstado(cita.id, "cancelada")}>Cancelar</Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => cancelarCita(cita)}
+                                >
+                                  Cancelar
+                                </Button>
                               </>
                             )}
-                            {/* pendiente con Stripe: pago en curso — solo cancelar */}
-                            {cita.estado === "pendiente" && cita.stripe_session_id && (
-                              <span className="text-xs text-muted-foreground italic px-1">Esperando pago…</span>
+                            {/* pendiente con Stripe sin pago confirmado */}
+                            {cita.estado === "pendiente" && esperandoPago(cita) && (
+                              <>
+                                <span className="text-xs text-muted-foreground italic px-1">Esperando pago…</span>
+                                <Button size="sm" variant="destructive" onClick={() => cancelarCita(cita)}>Cancelar</Button>
+                              </>
                             )}
                             {/* confirmada (pago listo): solo completar o reagendar */}
                             {cita.estado === "confirmada" && (
                               <>
-                                <Button size="sm" variant="outline" onClick={() => cambiarEstado(cita.id, "completada")}>Completar</Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={new Date(cita.fecha_hora) > new Date()}
+                                  title={new Date(cita.fecha_hora) > new Date() ? "La cita aún no ha ocurrido" : ""}
+                                  onClick={() => cambiarEstado(cita.id, "completada", cita.fecha_hora)}
+                                >
+                                  Completar
+                                </Button>
                                 <Button
                                   size="sm"
                                   variant="secondary"
-                                  onClick={() => { setReprogramarCita(cita); setNewDate(undefined); setNewSlot(""); setSlots([]); }}
+                                  onClick={() => {
+                                    setReprogramarCita(cita);
+                                    setNewDate(undefined);
+                                    setNewSlot("");
+                                    setSlots([]);
+                                    setAvailableDaysReagendar([]);
+                                    const duracion = cita.duracion_total > 0 ? cita.duracion_total : cita.servicio_duracion;
+                                    loadDaysReagendar(duracion, new Date(), cita.id);
+                                  }}
                                 >
                                   Reagendar
                                 </Button>
@@ -455,9 +552,21 @@ export default function AdminCitasPage() {
                 <p>Servicio: <strong>{reprogramarCita.servicio_nombre}</strong></p>
                 <p>Hora actual: <strong>{format(new Date(reprogramarCita.fecha_hora), "dd MMM yyyy · HH:mm", { locale: es })}</strong></p>
               </div>
+              {daysLoadingReagendar && (
+                <p className="text-xs text-muted-foreground text-center animate-pulse">
+                  Buscando días disponibles...
+                </p>
+              )}
               <Calendar
                 mode="single"
                 selected={newDate}
+                onMonthChange={(m) => {
+                  if (!reprogramarCita) return;
+                  const duracion = reprogramarCita.duracion_total > 0
+                    ? reprogramarCita.duracion_total
+                    : reprogramarCita.servicio_duracion;
+                  loadDaysReagendar(duracion, m, reprogramarCita.id);
+                }}
                 onSelect={async (d: Date | undefined) => {
                   if (!d) return;
                   setNewDate(d);
@@ -469,7 +578,14 @@ export default function AdminCitasPage() {
                   const res = await fetch(`/api/citas?fecha=${fecha}&duracion=${duracion}&exclude_id=${reprogramarCita.id}`);
                   setSlots(await res.json());
                 }}
-                disabled={(date) => date < new Date() || date.getDay() === 0}
+                disabled={(date) => {
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  if (date < today) return true;
+                  if (date.getDay() === 0) return true;
+                  if (daysLoadingReagendar) return true;
+                  return availableDaysReagendar.length > 0 && !availableDaysReagendar.includes(format(date, "yyyy-MM-dd"));
+                }}
               />
               {slots.length > 0 && (() => {
                 const slotActual = reprogramarCita.fecha_hora.split("T")[1]?.slice(0, 5) ?? "";
@@ -507,11 +623,15 @@ export default function AdminCitasPage() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ action: "reprogramar", id: reprogramarCita.id, fecha_hora }),
                   });
+                  if (!handleAdminUnauthorized(res)) return;
                   if (res.ok) {
                     toast.success("Cita reprogramada");
                     setReprogramarCita(null);
                     load();
-                  } else toast.error("Error al reprogramar");
+                  } else {
+                    const data = await res.json().catch(() => ({}));
+                    toast.error(data.error ?? "Error al reprogramar");
+                  }
                 }}
               >
                 Confirmar nueva fecha

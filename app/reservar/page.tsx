@@ -25,6 +25,8 @@ import { cn } from "@/lib/utils";
 type ItemCarrito  = { servicio: Servicio; cantidad: number };
 type SlotStatus   = { hora: string; disponible: boolean };
 
+const MAX_POR_SERVICIO = 3; // máximo 3 del mismo servicio por reserva
+
 function horaFin(hora: string, duracionMin: number): string {
   const [h, m] = hora.split(":").map(Number);
   const total  = h * 60 + m + duracionMin;
@@ -49,6 +51,7 @@ function ReservarContent() {
   const [holdId, setHoldId]           = useState<number | null>(null);
   const [holdExpiry, setHoldExpiry]   = useState<Date | null>(null);
   const [holdSecsLeft, setHoldSecsLeft] = useState(0);
+  const [daysLoading, setDaysLoading] = useState(false);
   const refreshIntervalRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -92,7 +95,8 @@ function ReservarContent() {
     const otrosDuracion = carrito
       .filter((x) => x.servicio.id !== s.id)
       .reduce((acc, x) => acc + x.servicio.duracion_minutos * x.cantidad, 0);
-    return Math.max(1, Math.floor((maxMinutos - otrosDuracion) / s.duracion_minutos));
+    const maxPorTiempo = Math.max(1, Math.floor((maxMinutos - otrosDuracion) / s.duracion_minutos));
+    return Math.min(MAX_POR_SERVICIO, maxPorTiempo);
   };
 
   const aumentar = (s: Servicio) => {
@@ -120,11 +124,18 @@ function ReservarContent() {
 
   const loadAvailableDays = useCallback(async (duracion: number, date: Date) => {
     if (duracion === 0) return;
-    const res = await fetch(
-      `/api/citas?year=${date.getFullYear()}&month=${date.getMonth()}&duracion=${duracion}`
-    );
-    const days = await res.json();
-    setAvailableDays(Array.isArray(days) ? days : []);
+    setDaysLoading(true);
+    try {
+      const res = await fetch(
+        `/api/citas?year=${date.getFullYear()}&month=${date.getMonth()}&duracion=${duracion}`
+      );
+      const days = await res.json();
+      setAvailableDays(Array.isArray(days) ? days : []);
+    } catch {
+      setAvailableDays([]);
+    } finally {
+      setDaysLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -373,12 +384,23 @@ function ReservarContent() {
 
           {/* ── STEP 1: Fecha ── */}
           {step === 1 && (
-            <div className="flex justify-center">
+            <div className="flex flex-col items-center gap-3">
+              {daysLoading && (
+                <p className="text-xs text-muted-foreground animate-pulse">
+                  Buscando días disponibles...
+                </p>
+              )}
               <Calendar
                 mode="single"
                 selected={selectedDate}
                 month={calendarMonth}
-                onMonthChange={(m) => setCalendarMonth(m)}
+                onMonthChange={(m) => {
+                  const today = new Date();
+                  const maxMonth = new Date(today.getFullYear(), today.getMonth() + 2, 1);
+                  if (m > maxMonth) return;
+                  if (m < new Date(today.getFullYear(), today.getMonth(), 1)) return;
+                  setCalendarMonth(m);
+                }}
                 onSelect={(d: Date | undefined) => {
                   setSelectedDate(d);
                   setSelectedSlot("");
@@ -387,11 +409,19 @@ function ReservarContent() {
                 disabled={(date) => {
                   const today = new Date();
                   today.setHours(0, 0, 0, 0);
+                  const maxDate = new Date();
+                  maxDate.setMonth(maxDate.getMonth() + 2);
+                  maxDate.setHours(23, 59, 59, 999);
                   if (date < today) return true;
+                  if (date > maxDate) return true;
                   if (date.getDay() === 0) return true;
+                  if (daysLoading) return true;
                   return !isDayAvailable(date);
                 }}
               />
+              <p className="text-xs text-muted-foreground text-center">
+                Solo puedes reservar dentro de los próximos 2 meses
+              </p>
             </div>
           )}
 
@@ -415,6 +445,12 @@ function ReservarContent() {
                       <span className="text-xs text-muted-foreground animate-pulse">Actualizando...</span>
                     )}
                   </div>
+
+                  {slots.length > 0 && slots.every((s) => !s.disponible) && (
+                    <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-700 text-center">
+                      No hay horarios disponibles para este día. Regresa y elige otra fecha.
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-1.5">
                     {slots.map(({ hora, disponible }) => {

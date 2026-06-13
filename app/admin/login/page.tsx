@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -11,14 +10,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { loginSchema, type LoginFormData } from "@/lib/validators";
+import { getAdminBase } from "@/lib/admin-utils";
 
 export default function AdminLoginPage() {
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const BASE = getAdminBase();
 
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "admin@barberhost.com", password: "admin123" },
+    defaultValues: { email: "", password: "" },
   });
 
   const onSubmit = async (data: LoginFormData) => {
@@ -27,15 +27,20 @@ export default function AdminLoginPage() {
       const res = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(data),
       });
+      if (res.status === 429) {
+        toast.error("Demasiados intentos. Espera 15 minutos.");
+        return;
+      }
       if (!res.ok) {
-        toast.error("Credenciales incorrectas");
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? "Credenciales incorrectas");
         return;
       }
       toast.success("Sesión iniciada");
-      router.push("/admin");
-      router.refresh();
+      window.location.href = `${BASE}/admin/`;
     } catch {
       toast.error("Error al iniciar sesión");
     } finally {
@@ -73,9 +78,6 @@ export default function AdminLoginPage() {
               {loading ? "Entrando..." : "Iniciar sesión"}
             </Button>
           </form>
-          <p className="mt-4 text-center text-xs text-muted-foreground">
-            Demo: admin@barberhost.com / admin123
-          </p>
         </CardContent>
       </Card>
     </div>

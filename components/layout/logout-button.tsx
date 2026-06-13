@@ -1,22 +1,20 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { redirectToAdminLogin } from "@/lib/admin-utils";
 
-export function LogoutButton() {
-  const router = useRouter();
-
+export function LogoutButton({ className }: { className?: string }) {
   const handleLogout = async () => {
     await fetch("/api/admin/logout", { method: "POST" });
     toast.success("Sesión cerrada");
-    router.push("/admin/login");
-    router.refresh();
+    redirectToAdminLogin();
   };
 
   return (
-    <Button variant="outline" className="w-full" onClick={handleLogout}>
+    <Button variant="outline" className={cn("w-full", className)} onClick={handleLogout}>
       <LogOut className="size-4" />
       Cerrar sesión
     </Button>

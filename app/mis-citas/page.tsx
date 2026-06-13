@@ -17,7 +17,9 @@ import { exportCitaComprobante } from "@/lib/pdf-export";
 import { formatDateTime, formatCurrency } from "@/lib/utils";
 import type { CitaConDetalles } from "@/lib/types";
 
-const normalizeTel = (tel: string) => tel.replace(/[\s\-\(\)\.]/g, "");
+const normalizeTel = (tel: string) => tel.replace(/[\s\-\(\)\+\.]/g, "");
+
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 export default function MisCitasPage() {
   const [email, setEmail] = useState("");
@@ -25,22 +27,21 @@ export default function MisCitasPage() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
 
-  // Verificación de teléfono
-  const [verifyFor, setVerifyFor] = useState<CitaConDetalles | null>(null);
-  const [phoneInput, setPhoneInput] = useState("");
-  const [phoneError, setPhoneError] = useState(false);
+  // Verificación de teléfono (usada para reprogramar Y cancelar)
+  const [verifyFor, setVerifyFor]     = useState<CitaConDetalles | null>(null);
+  const [verifyAction, setVerifyAction] = useState<"reprogramar" | "cancelar">("reprogramar");
+  const [phoneInput, setPhoneInput]   = useState("");
+  const [phoneError, setPhoneError]   = useState(false);
+  const [verifiedPhone, setVerifiedPhone] = useState("");
 
   // Reprogramar
   const [reprogramarId, setReprogramarId] = useState<number | null>(null);
-  const [newDate, setNewDate] = useState<Date | undefined>();
-  const [newSlot, setNewSlot] = useState("");
-  const [slots, setSlots] = useState<string[]>([]);
+  const [newDate, setNewDate]   = useState<Date | undefined>();
+  const [newSlot, setNewSlot]   = useState("");
+  const [slots, setSlots]       = useState<string[]>([]);
 
   const buscar = async () => {
-    if (!email.trim()) {
-      toast.error("Introduce tu email");
-      return;
-    }
+    if (!email.trim()) { toast.error("Introduce tu email"); return; }
     setLoading(true);
     setSearched(true);
     try {
@@ -55,39 +56,60 @@ export default function MisCitasPage() {
     }
   };
 
-  const cancelar = async (id: number) => {
-    try {
-      const res = await fetch("/api/citas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "cancelar", id }),
-      });
-      if (!res.ok) throw new Error();
-      toast.success("Cita cancelada");
-      buscar();
-    } catch {
-      toast.error("Error al cancelar");
-    }
-  };
+  // Determina si la cita es futura (puede cancelarse o reprogramarse)
+  const esFutura = (cita: CitaConDetalles) => new Date(cita.fecha_hora) > new Date();
 
-  // Paso 1: pedir verificación de teléfono
-  const pedirVerificacion = (cita: CitaConDetalles) => {
+  // Abre el diálogo de verificación de teléfono
+  const pedirVerificacion = (cita: CitaConDetalles, action: "reprogramar" | "cancelar") => {
     setVerifyFor(cita);
+    setVerifyAction(action);
     setPhoneInput("");
     setPhoneError(false);
   };
 
-  // Paso 2: verificar y abrir reprogramar si coincide
-  const confirmarTelefono = () => {
+  // Confirmación del teléfono: si coincide, procede con la acción
+  const confirmarTelefono = async () => {
     if (!verifyFor) return;
-    if (normalizeTel(phoneInput) === normalizeTel(verifyFor.cliente_telefono ?? "")) {
-      setVerifyFor(null);
-      setReprogramarId(verifyFor.id);
+    if (normalizeTel(phoneInput) !== normalizeTel(verifyFor.cliente_telefono ?? "")) {
+      setPhoneError(true);
+      return;
+    }
+    const phone = phoneInput;
+    const cita  = verifyFor;
+    setVerifyFor(null);
+
+    if (verifyAction === "cancelar") {
+      await cancelarVerificado(cita, phone);
+    } else {
+      setVerifiedPhone(phone);
+      setReprogramarId(cita.id);
       setNewDate(undefined);
       setNewSlot("");
       setSlots([]);
-    } else {
-      setPhoneError(true);
+    }
+  };
+
+  // Cancela una cita con verificación de teléfono (servidor también lo verifica)
+  const cancelarVerificado = async (cita: CitaConDetalles, telefono: string) => {
+    try {
+      const res = await fetch("/api/citas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancelar_publico", id: cita.id, telefono }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error ?? "Error al cancelar");
+        return;
+      }
+      if (json.reembolsado) {
+        toast.success("Cita cancelada — se procesó un reembolso automático");
+      } else {
+        toast.success("Cita cancelada");
+      }
+      buscar();
+    } catch {
+      toast.error("Error al cancelar");
     }
   };
 
@@ -96,9 +118,7 @@ export default function MisCitasPage() {
     setNewSlot("");
     const fecha = format(date, "yyyy-MM-dd");
     const duracion = (cita.duracion_total ?? 0) > 0 ? cita.duracion_total : cita.servicio_duracion;
-    const res = await fetch(
-      `/api/citas?fecha=${fecha}&duracion=${duracion}&exclude_id=${cita.id}`
-    );
+    const res = await fetch(`/api/citas?fecha=${fecha}&duracion=${duracion}&exclude_id=${cita.id}`);
     setSlots(await res.json());
   };
 
@@ -109,7 +129,12 @@ export default function MisCitasPage() {
       const res = await fetch("/api/citas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reprogramar", id: cita.id, fecha_hora }),
+        body: JSON.stringify({
+          action:    "reprogramar_publico",
+          id:        cita.id,
+          fecha_hora,
+          telefono:  verifiedPhone,
+        }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -124,6 +149,10 @@ export default function MisCitasPage() {
   };
 
   const citaReprogramar = citas.find((c) => c.id === reprogramarId);
+
+  // Límite de 2 meses para el calendario de reprogramar
+  const maxFechaReprogramar = new Date();
+  maxFechaReprogramar.setMonth(maxFechaReprogramar.getMonth() + 2);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -161,41 +190,58 @@ export default function MisCitasPage() {
         )}
 
         <div className="grid gap-4">
-          {citas.map((cita) => (
-            <Card key={cita.id}>
-              <CardHeader className="flex flex-row items-start justify-between">
-                <div>
-                  <CardTitle className="text-lg">{cita.servicio_nombre}</CardTitle>
-                  <p className="text-sm text-muted-foreground">{formatDateTime(cita.fecha_hora)}</p>
-                </div>
-                <EstadoBadge estado={cita.estado} />
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm">{formatCurrency(cita.servicio_precio)} · Ref. #{cita.id}</p>
-                {cita.estado !== "cancelada" && cita.estado !== "completada" && (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" onClick={() => pedirVerificacion(cita)}>
-                      <Calendar className="size-4" /> Reprogramar
-                    </Button>
-                    <Button size="sm" variant="destructive" onClick={() => cancelar(cita.id)}>
-                      <X className="size-4" /> Cancelar
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={() => exportCitaComprobante({ ...cita, cliente_telefono: undefined })}>
-                      <Download className="size-4" /> PDF
-                    </Button>
+          {citas.map((cita) => {
+            const futura = esFutura(cita);
+            const puedeCancelar  = futura && cita.estado !== "cancelada" && cita.estado !== "completada";
+            const puedeReprogramar = futura && cita.estado === "confirmada";
+
+            return (
+              <Card key={cita.id}>
+                <CardHeader className="flex flex-row items-start justify-between">
+                  <div>
+                    <CardTitle className="text-lg">{cita.servicio_nombre}</CardTitle>
+                    <p className="text-sm text-muted-foreground">{formatDateTime(cita.fecha_hora)}</p>
                   </div>
-                )}
-                {(cita.estado === "cancelada" || cita.estado === "completada") && (
-                  <Button size="sm" variant="secondary" className="mt-4" onClick={() => exportCitaComprobante({ ...cita, cliente_telefono: undefined })}>
-                    <Download className="size-4" /> Descargar comprobante
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                  <EstadoBadge estado={cita.estado} />
+                </CardHeader>
+                <CardContent>
+                  {/* precio_total muestra lo que realmente pagó (no el precio unitario del servicio) */}
+                  <p className="text-sm">{formatCurrency(cita.precio_total)} · Ref. #{cita.id}</p>
+
+                  {!futura && cita.estado === "confirmada" && (
+                    <p className="mt-2 text-xs text-muted-foreground italic">Esta cita ya ocurrió</p>
+                  )}
+
+                  {(puedeReprogramar || puedeCancelar) && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {puedeReprogramar && (
+                        <Button size="sm" variant="outline" onClick={() => pedirVerificacion(cita, "reprogramar")}>
+                          <Calendar className="size-4" /> Reprogramar
+                        </Button>
+                      )}
+                      {puedeCancelar && (
+                        <Button size="sm" variant="destructive" onClick={() => pedirVerificacion(cita, "cancelar")}>
+                          <X className="size-4" /> Cancelar
+                        </Button>
+                      )}
+                      <Button size="sm" variant="secondary" onClick={() => exportCitaComprobante({ ...cita, cliente_telefono: undefined })}>
+                        <Download className="size-4" /> PDF
+                      </Button>
+                    </div>
+                  )}
+
+                  {(cita.estado === "cancelada" || cita.estado === "completada" || !futura) && (
+                    <Button size="sm" variant="secondary" className="mt-4" onClick={() => exportCitaComprobante({ ...cita, cliente_telefono: undefined })}>
+                      <Download className="size-4" /> Descargar comprobante
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
-        {/* Dialog: verificación de teléfono */}
+        {/* ── Dialog: verificación de teléfono (para reprogramar Y cancelar) ── */}
         <Dialog open={!!verifyFor} onOpenChange={() => setVerifyFor(null)}>
           <DialogContent>
             <DialogHeader>
@@ -203,8 +249,15 @@ export default function MisCitasPage() {
             </DialogHeader>
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Introduce el número de teléfono que registraste al hacer la cita para poder reprogramarla.
+                {verifyAction === "cancelar"
+                  ? "Introduce el teléfono con el que registraste la cita para confirmar la cancelación."
+                  : "Introduce el teléfono con el que registraste la cita para poder reprogramarla."}
               </p>
+              {verifyAction === "cancelar" && verifyFor?.stripe_payment_status === "pagado" && (
+                <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                  Esta cita fue pagada — si cancelas se procesará un reembolso automático.
+                </p>
+              )}
               <div className="space-y-1">
                 <Label htmlFor="tel-verify">Número de teléfono</Label>
                 <Input
@@ -217,19 +270,22 @@ export default function MisCitasPage() {
                   className={phoneError ? "border-destructive focus-visible:ring-destructive" : ""}
                 />
                 {phoneError && (
-                  <p className="text-sm text-destructive">
-                    El número no coincide. Intenta de nuevo.
-                  </p>
+                  <p className="text-sm text-destructive">El número no coincide. Intenta de nuevo.</p>
                 )}
               </div>
-              <Button className="w-full" onClick={confirmarTelefono} disabled={!phoneInput.trim()}>
-                Continuar
+              <Button
+                className="w-full"
+                variant={verifyAction === "cancelar" ? "destructive" : "default"}
+                onClick={confirmarTelefono}
+                disabled={!phoneInput.trim()}
+              >
+                {verifyAction === "cancelar" ? "Confirmar cancelación" : "Continuar"}
               </Button>
             </div>
           </DialogContent>
         </Dialog>
 
-        {/* Dialog: reprogramar */}
+        {/* ── Dialog: reprogramar ── */}
         <Dialog open={!!reprogramarId} onOpenChange={() => setReprogramarId(null)}>
           <DialogContent>
             <DialogHeader>
@@ -237,11 +293,21 @@ export default function MisCitasPage() {
             </DialogHeader>
             {citaReprogramar && (
               <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Solo puedes reagendar dentro de los próximos 2 meses.
+                </p>
                 <DateCalendar
                   mode="single"
                   selected={newDate}
                   onSelect={(d: Date | undefined) => d && cargarSlots(d, citaReprogramar)}
-                  disabled={(date) => date < new Date() || date.getDay() === 0}
+                  disabled={(date) => {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    if (date < today) return true;
+                    if (date > maxFechaReprogramar) return true;
+                    if (date.getDay() === 0) return true;
+                    return false;
+                  }}
                 />
                 {slots.length > 0 && (
                   <div className="grid grid-cols-3 gap-2">
@@ -256,6 +322,9 @@ export default function MisCitasPage() {
                       </Button>
                     ))}
                   </div>
+                )}
+                {newDate && slots.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center">No hay horarios disponibles este día</p>
                 )}
                 <Button
                   className="w-full"

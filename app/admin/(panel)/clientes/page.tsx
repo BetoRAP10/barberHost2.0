@@ -12,6 +12,7 @@ import { EmptyState, EstadoBadge, LoadingState } from "@/components/shared/statu
 import { exportTableToPdf } from "@/lib/pdf-export";
 import { formatDateTime } from "@/lib/utils";
 import type { ClienteConHistorial } from "@/lib/types";
+import { handleAdminUnauthorized } from "@/lib/admin-utils";
 
 export default function AdminClientesPage() {
   const [clientes, setClientes] = useState<ClienteConHistorial[]>([]);
@@ -19,13 +20,19 @@ export default function AdminClientesPage() {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
 
-  const load = (q?: string) => {
+  const load = async (q?: string) => {
     setLoading(true);
-    const params = q ? `?q=${encodeURIComponent(q)}` : "";
-    fetch(`/api/clientes${params}`)
-      .then((r) => r.json())
-      .then(setClientes)
-      .finally(() => setLoading(false));
+    try {
+      const params = q ? `?q=${encodeURIComponent(q)}` : "";
+      const r = await fetch(`/api/clientes${params}`);
+      if (!handleAdminUnauthorized(r)) return;
+      const data = await r.json();
+      if (Array.isArray(data)) setClientes(data);
+    } catch {
+      toast.error("Error al cargar clientes");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);

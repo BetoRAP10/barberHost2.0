@@ -39,6 +39,14 @@ NEXT_PUBLIC_URL=http://localhost:3000
 
 # Resend — opcional, para emails de confirmación
 RESEND_API_KEY=re_<api key>
+
+# Seguridad del panel de administración (obligatorio en producción)
+SESSION_SECRET=<genera con: openssl rand -hex 32>
+
+# Solo para crear el primer administrador si la tabla está vacía
+ADMIN_INITIAL_EMAIL=admin@tudominio.com
+ADMIN_INITIAL_PASSWORD=<contraseña segura>
+ADMIN_INITIAL_NAME=Administrador
 ```
 
 > **Nota:** `SUPABASE_SERVICE_KEY` omite RLS. Nunca lo expongas en el cliente (`NEXT_PUBLIC_`).
@@ -47,7 +55,7 @@ RESEND_API_KEY=re_<api key>
 
 ## Base de datos
 
-Ejecuta el SQL en el **SQL Editor** de Supabase para crear las tablas. Los servicios de ejemplo y el usuario administrador se insertan automáticamente la primera vez que arranca la app.
+Ejecuta el SQL en el **SQL Editor** de Supabase para crear las tablas. Los servicios de ejemplo se insertan automáticamente la primera vez que arranca la app. El administrador inicial solo se crea si defines `ADMIN_INITIAL_EMAIL` y `ADMIN_INITIAL_PASSWORD` en el entorno.
 
 ---
 
@@ -64,14 +72,16 @@ El servidor escucha en `0.0.0.0:3000` — accesible también desde la red local.
 
 ## Credenciales de administrador
 
-| Campo | Valor |
-|-------|-------|
-| Email | admin@barberhost.com |
-| Contraseña | admin123 |
+El primer administrador se crea **solo al arrancar** si la tabla `usuarios_admin` está vacía y tienes configuradas estas variables:
 
-Panel: [http://localhost:3000/admin](http://localhost:3000/admin)
+```env
+ADMIN_INITIAL_EMAIL=admin@tudominio.com
+ADMIN_INITIAL_PASSWORD=<contraseña segura>
+```
 
-> Cambia la contraseña desde el SQL Editor de Supabase antes de producción.
+Panel: [http://localhost:3000/equipo_04/admin/](http://localhost:3000/equipo_04/admin/)
+
+> En producción, `SESSION_SECRET` es obligatorio. No uses contraseñas por defecto ni compartas `SUPABASE_SERVICE_KEY`.
 
 ---
 

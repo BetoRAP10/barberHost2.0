@@ -1,22 +1,32 @@
 import { cookies } from "next/headers";
 import bcrypt from "bcryptjs";
 import { getAdminByEmail, getAdminById } from "./db";
+import {
+  SESSION_COOKIE,
+  SESSION_MAX_AGE,
+  createSessionToken,
+  isSecureCookieEnv,
+  verifySessionToken,
+} from "./auth-session";
 
-const SESSION_COOKIE = "barber_admin_session";
-const SESSION_MAX_AGE = 60 * 60 * 24;
+export { SESSION_COOKIE, verifySessionToken } from "./auth-session";
 
 export async function loginAdmin(email: string, password: string): Promise<boolean> {
   const admin = await getAdminByEmail(email);
-  if (!admin) return false;
+  if (!admin) {
+    await bcrypt.compare(password, "$2b$10$invalidhashplaceholderXXXXXXXXXXXXXXXXXXXXXXX");
+    return false;
+  }
 
-  const valid = bcrypt.compareSync(password, admin.contrasena_hash);
+  const valid = await bcrypt.compare(password, admin.contrasena_hash);
   if (!valid) return false;
 
+  const token = createSessionToken(admin.id);
   const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, String(admin.id), {
+  cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    secure: isSecureCookieEnv(),
+    sameSite: "strict",
     maxAge: SESSION_MAX_AGE,
     path: "/",
   });
@@ -26,7 +36,13 @@ export async function loginAdmin(email: string, password: string): Promise<boole
 
 export async function logoutAdmin() {
   const cookieStore = await cookies();
-  cookieStore.delete(SESSION_COOKIE);
+  cookieStore.set(SESSION_COOKIE, "", {
+    httpOnly: true,
+    secure: isSecureCookieEnv(),
+    sameSite: "strict",
+    maxAge: 0,
+    path: "/",
+  });
 }
 
 export async function getAdminSession(): Promise<{ id: number; nombre: string; email: string } | null> {
@@ -34,10 +50,11 @@ export async function getAdminSession(): Promise<{ id: number; nombre: string; e
   const session = cookieStore.get(SESSION_COOKIE);
   if (!session?.value) return null;
 
-  const admin = await getAdminById(Number(session.value));
-  if (!admin) return null;
+  const adminId = verifySessionToken(session.value);
+  if (adminId === null) return null;
 
-  return admin;
+  const admin = await getAdminById(adminId);
+  return admin ?? null;
 }
 
 export async function isAdminAuthenticated(): Promise<boolean> {

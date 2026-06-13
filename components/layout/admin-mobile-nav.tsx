@@ -6,16 +6,17 @@ import { getAdminBase } from "@/lib/admin-utils";
 import { LogoutButton } from "@/components/layout/logout-button";
 import { adminNavItems } from "@/components/layout/admin-nav-items";
 
-export function AdminSidebar() {
+export function AdminMobileNav() {
   const pathname = usePathname();
   const BASE = getAdminBase();
 
   return (
-    <aside className="relative hidden w-64 shrink-0 border-r bg-card lg:block">
-      <div className="flex h-16 items-center border-b px-6 font-semibold text-primary">
-        BarberHost Admin
+    <div className="border-b bg-card lg:hidden">
+      <div className="flex items-center justify-between px-4 py-3">
+        <p className="font-semibold text-primary">BarberHost Admin</p>
+        <LogoutButton className="w-auto shrink-0 text-xs" />
       </div>
-      <nav className="flex flex-col gap-1 p-4">
+      <nav className="flex gap-1 overflow-x-auto px-3 pb-3">
         {adminNavItems.map((item) => {
           const active =
             pathname === item.href ||
@@ -25,19 +26,16 @@ export function AdminSidebar() {
               key={item.href}
               href={`${BASE}${item.href}/`}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                active ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+                "flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                active ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-accent"
               )}
             >
-              <item.icon className="size-4" />
+              <item.icon className="size-3.5" />
               {item.label}
             </a>
           );
         })}
       </nav>
-      <div className="absolute bottom-4 left-4 w-56">
-        <LogoutButton />
-      </div>
-    </aside>
+    </div>
   );
 }

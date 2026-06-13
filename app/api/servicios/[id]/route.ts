@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deleteServicio, getServicioById, updateServicio } from "@/lib/db";
+import { deleteServicio, getCitas, getServicioById, updateServicio } from "@/lib/db";
 import { isAdminAuthenticated } from "@/lib/auth";
 import { servicioSchema } from "@/lib/validators";
 
@@ -35,6 +35,21 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
   const { id } = await params;
-  await deleteServicio(Number(id));
+  const servicioId = Number(id);
+
+  const citas = await getCitas({ servicio_id: servicioId });
+  const activas = citas.filter(
+    (c) =>
+      ["confirmada", "pendiente"].includes(c.estado) &&
+      new Date(c.fecha_hora) > new Date()
+  );
+  if (activas.length > 0) {
+    return NextResponse.json(
+      { error: `Hay ${activas.length} cita(s) futura(s) con este servicio` },
+      { status: 409 }
+    );
+  }
+
+  await deleteServicio(servicioId);
   return NextResponse.json({ success: true });
 }

@@ -20,6 +20,7 @@ import { exportTableToPdf } from "@/lib/pdf-export";
 import { formatCurrency } from "@/lib/utils";
 import { servicioSchema, type ServicioFormData } from "@/lib/validators";
 import { CATEGORIAS_SERVICIO, type Servicio } from "@/lib/types";
+import { handleAdminUnauthorized } from "@/lib/admin-utils";
 import { cn } from "@/lib/utils";
 
 export default function AdminServiciosPage() {
@@ -36,8 +37,14 @@ export default function AdminServiciosPage() {
   const load = () => {
     setLoading(true);
     fetch("/api/servicios")
-      .then((r) => r.json())
-      .then(setServicios)
+      .then((r) => {
+        if (!handleAdminUnauthorized(r)) return null;
+        return r.json();
+      })
+      .then((data) => {
+        if (data === null) return;
+        setServicios(Array.isArray(data) ? data : []);
+      })
       .finally(() => setLoading(false));
   };
 
@@ -52,7 +59,12 @@ export default function AdminServiciosPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error();
+      if (!handleAdminUnauthorized(res)) return;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? "Error al guardar");
+        return;
+      }
       toast.success(editing ? "Servicio actualizado" : "Servicio creado");
       setOpen(false);
       setEditing(null);
@@ -64,18 +76,29 @@ export default function AdminServiciosPage() {
   };
 
   const toggleActivo = async (s: Servicio) => {
-    await fetch(`/api/servicios/${s.id}`, {
+    const res = await fetch(`/api/servicios/${s.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ activo: s.activo ? 0 : 1 }),
     });
+    if (!handleAdminUnauthorized(res)) return;
+    if (!res.ok) {
+      toast.error("Error al cambiar estado");
+      return;
+    }
     toast.success(s.activo ? "Servicio desactivado" : "Servicio activado");
     load();
   };
 
   const eliminar = async (id: number) => {
-    if (!confirm("¿Eliminar este servicio?")) return;
-    await fetch(`/api/servicios/${id}`, { method: "DELETE" });
+    if (!confirm("¿Eliminar este servicio? Esta acción no se puede deshacer.")) return;
+    const res = await fetch(`/api/servicios/${id}`, { method: "DELETE" });
+    if (!handleAdminUnauthorized(res)) return;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast.error(err.error ?? "No se pudo eliminar el servicio");
+      return;
+    }
     toast.success("Servicio eliminado");
     load();
   };
@@ -137,34 +160,44 @@ export default function AdminServiciosPage() {
                   <Label>Descripción</Label>
                   <Textarea {...form.register("descripcion")} />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Duración</Label>
-                    <div className="mt-1 flex gap-2">
-                      {[30, 60].map((mins) => (
-                        <button
-                          key={mins}
-                          type="button"
-                          onClick={() => form.setValue("duracion_minutos", mins, { shouldValidate: true })}
-                          className={cn(
-                            "flex-1 rounded-lg border-2 py-2 text-sm font-semibold transition-all",
-                            form.watch("duracion_minutos") === mins
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-input bg-background hover:border-primary/50 hover:bg-muted/40"
-                          )}
-                        >
-                          {mins} min
-                        </button>
-                      ))}
-                    </div>
-                    {form.formState.errors.duracion_minutos && (
-                      <p className="mt-1 text-sm text-destructive">{form.formState.errors.duracion_minutos.message}</p>
-                    )}
+                <div>
+                  <Label>Duración</Label>
+                  <div className="mt-1 flex flex-wrap gap-1.5 mb-2">
+                    {[15, 30, 45, 60, 90].map((mins) => (
+                      <button
+                        key={mins}
+                        type="button"
+                        onClick={() => form.setValue("duracion_minutos", mins, { shouldValidate: true })}
+                        className={cn(
+                          "rounded-lg border-2 px-3 py-1.5 text-sm font-semibold transition-all",
+                          form.watch("duracion_minutos") === mins
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-input bg-background hover:border-primary/50 hover:bg-muted/40"
+                        )}
+                      >
+                        {mins} min
+                      </button>
+                    ))}
                   </div>
-                  <div>
-                    <Label>Precio (MXN)</Label>
-                    <Input type="number" step="0.01" {...form.register("precio")} />
-                  </div>
+                  <Input
+                    type="number"
+                    min={15}
+                    max={180}
+                    step={15}
+                    placeholder="Otro (múltiplo de 15)"
+                    value={form.watch("duracion_minutos") || ""}
+                    onChange={(e) => form.setValue("duracion_minutos", Number(e.target.value), { shouldValidate: true })}
+                  />
+                  {form.formState.errors.duracion_minutos && (
+                    <p className="mt-1 text-sm text-destructive">{form.formState.errors.duracion_minutos.message}</p>
+                  )}
+                </div>
+                <div>
+                  <Label>Precio (MXN)</Label>
+                  <Input type="number" step="0.01" min={1} {...form.register("precio")} />
+                  {form.formState.errors.precio && (
+                    <p className="mt-1 text-sm text-destructive">{form.formState.errors.precio.message}</p>
+                  )}
                 </div>
                 <div>
                   <Label>Categoría</Label>

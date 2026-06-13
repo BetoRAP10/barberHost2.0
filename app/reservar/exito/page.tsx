@@ -2,7 +2,6 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 import {
   CheckCircle2, XCircle, Loader2, CalendarCheck,
   Clock, CreditCard, User, Download, Mail, MailCheck,
@@ -213,8 +212,12 @@ function ExitoContent() {
         </div>
 
         <div className="mt-4 flex gap-3">
-          <Button asChild className="flex-1"><Link href="/">Inicio</Link></Button>
-          <Button variant="outline" asChild className="flex-1"><Link href="/reservar">Nueva reserva</Link></Button>
+          <Button asChild className="flex-1">
+            <a href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/`}>Inicio</a>
+          </Button>
+          <Button variant="outline" asChild className="flex-1">
+            <a href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/reservar/`}>Nueva reserva</a>
+          </Button>
         </div>
       </div>
     );
@@ -231,7 +234,9 @@ function ExitoContent() {
         </p>
         <div className="mt-6 flex gap-3 justify-center">
           <Button onClick={() => window.location.reload()}>Verificar de nuevo</Button>
-          <Button variant="outline" asChild><Link href="/reservar">Volver</Link></Button>
+          <Button variant="outline" asChild>
+            <a href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/reservar/`}>Volver</a>
+          </Button>
         </div>
       </div>
     );
@@ -243,7 +248,9 @@ function ExitoContent() {
       <XCircle className="mx-auto mb-4 size-16 text-destructive" />
       <h1 className="text-2xl font-bold">Algo salió mal</h1>
       <p className="mt-2 text-muted-foreground">{result.message}</p>
-      <Button className="mt-6" asChild><Link href="/reservar">Intentar de nuevo</Link></Button>
+      <Button className="mt-6" asChild>
+        <a href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/reservar/`}>Intentar de nuevo</a>
+      </Button>
     </div>
   );
 }

@@ -16,6 +16,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { EmptyState, LoadingState } from "@/components/shared/status-badge";
 import { exportTableToPdf } from "@/lib/pdf-export";
 import type { DiaBloqueado } from "@/lib/types";
+import { handleAdminUnauthorized } from "@/lib/admin-utils";
 import { format } from "date-fns";
 
 export default function AdminDiasBloqueadosPage() {
@@ -39,7 +40,7 @@ export default function AdminDiasBloqueadosPage() {
     setLoading(true);
     fetch("/api/dias-bloqueados")
       .then((r) => r.json())
-      .then(setBloqueos)
+      .then((data) => setBloqueos(Array.isArray(data) ? data : []))
       .finally(() => setLoading(false));
   };
 
@@ -50,6 +51,19 @@ export default function AdminDiasBloqueadosPage() {
 
   const guardarDias = async () => {
     if (!selectedDates.length || !motivoDias) return;
+    // Validar horas si se especifican
+    if (horaInicioDias && !horaFinDias) {
+      toast.error("Si especificas hora de inicio, debes indicar también la hora de fin");
+      return;
+    }
+    if (!horaInicioDias && horaFinDias) {
+      toast.error("Si especificas hora de fin, debes indicar también la hora de inicio");
+      return;
+    }
+    if (horaInicioDias && horaFinDias && horaFinDias <= horaInicioDias) {
+      toast.error("La hora de fin debe ser posterior a la hora de inicio");
+      return;
+    }
     try {
       const res = await fetch("/api/dias-bloqueados", {
         method: "POST",
@@ -61,6 +75,7 @@ export default function AdminDiasBloqueadosPage() {
           hora_fin:    horaFinDias    || null,
         }),
       });
+      if (!handleAdminUnauthorized(res)) return;
       if (!res.ok) throw new Error();
       toast.success(`${selectedDates.length} día(s) bloqueado(s)`);
       setOpenDias(false);
@@ -76,6 +91,18 @@ export default function AdminDiasBloqueadosPage() {
 
   const guardarMuerto = async () => {
     if (!horaInicioM || !horaFinM || !motivoMuerto) return;
+    if (horaFinM <= horaInicioM) {
+      toast.error("La hora de fin debe ser posterior a la hora de inicio");
+      return;
+    }
+    // Verificar duplicados
+    const duplicado = bloqueosDiarios.some(
+      (b) => b.hora_inicio === horaInicioM && b.hora_fin === horaFinM
+    );
+    if (duplicado) {
+      toast.error("Ya existe un tiempo muerto con ese mismo horario");
+      return;
+    }
     try {
       const res = await fetch("/api/dias-bloqueados", {
         method: "POST",
@@ -87,6 +114,7 @@ export default function AdminDiasBloqueadosPage() {
           hora_fin:    horaFinM,
         }),
       });
+      if (!handleAdminUnauthorized(res)) return;
       if (!res.ok) throw new Error();
       toast.success("Tiempo muerto agregado");
       setOpenMuerto(false);
@@ -97,7 +125,12 @@ export default function AdminDiasBloqueadosPage() {
   };
 
   const eliminar = async (id: number) => {
-    await fetch(`/api/dias-bloqueados?id=${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/dias-bloqueados?id=${id}`, { method: "DELETE" });
+    if (!handleAdminUnauthorized(res)) return;
+    if (!res.ok) {
+      toast.error("Error al eliminar bloqueo");
+      return;
+    }
     toast.success("Bloqueo eliminado");
     load();
   };
@@ -170,7 +203,11 @@ export default function AdminDiasBloqueadosPage() {
                 mode="multiple"
                 selected={selectedDates}
                 onSelect={(dates) => setSelectedDates(dates ?? [])}
-                disabled={(date) => date < new Date()}
+                disabled={(date) => {
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  return date < today || date.getDay() === 0;
+                }}
               />
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
